@@ -72,18 +72,19 @@ export default function Login() {
         style={{ flex: 1 }}
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
         <View style={styles.frame}>
           <View style={styles.hero}>
             <Image source={HERO} style={StyleSheet.absoluteFill} contentFit="cover" />
             <LinearGradient
-              colors={["rgba(44,42,40,0.1)", "rgba(44,42,40,0.85)"]}
+              colors={["rgba(44,42,40,0.15)", "rgba(44,42,40,0.85)"]}
               style={StyleSheet.absoluteFill}
             />
             <SafeAreaView edges={["top"]} style={styles.heroInner}>
               <Text style={styles.heroSmall}>Welcome to</Text>
               <Text style={styles.heroTitle} testID="login-title">Home Tiffin</Text>
-              <Text style={styles.heroSub}>Fresh, home-cooked meals delivered daily.</Text>
+              <Text style={styles.heroSub}>Fresh, home-cooked meals · delivered daily</Text>
             </SafeAreaView>
           </View>
 
@@ -118,15 +119,25 @@ export default function Login() {
                   {busy ? <ActivityIndicator color={colors.onBrand} /> :
                     <Text style={styles.ctaText}>Send OTP</Text>}
                 </Pressable>
-                <Text style={styles.hint}>
-                  Try seeded accounts: 9000000001 (Admin) · 9000000002 (Delivery) · 9999911111 (Customer)
-                </Text>
+                <View style={styles.hintBlock}>
+                  <Text style={styles.hintLabel}>Seeded test accounts</Text>
+                  <Text style={styles.hintLine}>
+                    <Text style={styles.hintRole}>Admin</Text>  9000000001
+                  </Text>
+                  <Text style={styles.hintLine}>
+                    <Text style={styles.hintRole}>Delivery</Text>  9000000002
+                  </Text>
+                  <Text style={styles.hintLine}>
+                    <Text style={styles.hintRole}>Customer</Text>  9999911111
+                  </Text>
+                </View>
               </>
             ) : (
               <>
                 <Text style={styles.h2}>Enter the code</Text>
                 <Text style={styles.muted}>
-                  Sent to <Text style={{ fontWeight: "700" }}>{normalizedPhone}</Text>
+                  Sent to{" "}
+                  <Text style={styles.mutedStrong}>{normalizedPhone}</Text>
                 </Text>
                 {devOtp && (
                   <View style={styles.devOtp} testID="dev-otp-banner">
@@ -176,72 +187,105 @@ const styles = StyleSheet.create({
             backgroundColor: colors.surfaceInverse },
   frame: { width: "100%", maxWidth: 480, alignSelf: "center",
            backgroundColor: colors.surface, flexGrow: 1 },
-  hero: { height: 320, backgroundColor: colors.surfaceInverse,
+  hero: { height: 260, backgroundColor: colors.surfaceInverse,
           overflow: "hidden" },
-  heroInner: { flex: 1, padding: spacing.xl, justifyContent: "flex-end" },
-  heroSmall: { color: colors.brandTertiary, fontSize: 14, marginBottom: spacing.xs },
-  heroTitle: { color: colors.onSurfaceInverse, fontSize: 40, fontWeight: "700",
+  heroInner: { flex: 1, paddingHorizontal: spacing.xl,
+               paddingBottom: spacing.xl + 8, justifyContent: "flex-end" },
+  heroSmall: { color: colors.brandTertiary, fontSize: 13,
+               marginBottom: 2, letterSpacing: 0.3,
+               fontFamily: font.body },
+  heroTitle: { color: colors.onSurfaceInverse, fontSize: 36, fontWeight: "700",
                fontFamily: font.display,
-               letterSpacing: -0.5 },
-  heroSub: { color: colors.brandTertiary, fontSize: 15, marginTop: spacing.sm },
+               letterSpacing: -0.5, lineHeight: 42 },
+  heroSub: { color: colors.brandTertiary, fontSize: 13,
+             marginTop: spacing.sm, lineHeight: 18,
+             fontFamily: font.body },
 
   card: {
-    marginTop: -spacing.xl,
+    marginTop: -spacing.xxl,
     marginHorizontal: spacing.lg,
     backgroundColor: colors.surfaceSecondary,
     borderRadius: radius.lg,
-    padding: spacing.xl,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg + 4,
     ...shadow.card,
   },
-  h2: { fontSize: 22, fontWeight: "700", color: colors.onSurface, marginBottom: spacing.xs },
-  muted: { color: colors.onSurfaceMuted, fontSize: 14, marginBottom: spacing.lg },
+  h2: { fontSize: 20, fontWeight: "700", color: colors.onSurface,
+        fontFamily: font.bodyBold,
+        marginBottom: spacing.xs, letterSpacing: -0.3 },
+  muted: { color: colors.onSurfaceMuted, fontSize: 13,
+           marginBottom: spacing.md, lineHeight: 18,
+           fontFamily: font.body },
+  mutedStrong: { color: colors.onSurface, fontFamily: font.bodyBold,
+                 fontWeight: "700" },
 
   phoneRow: {
     flexDirection: "row", alignItems: "center", gap: spacing.sm,
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   cc: {
     backgroundColor: colors.surfaceTertiary,
-    paddingHorizontal: spacing.md, paddingVertical: 14,
+    paddingHorizontal: spacing.md, paddingVertical: 12,
     borderRadius: radius.md,
+    minWidth: 56, alignItems: "center",
   },
-  ccText: { color: colors.onBrandTertiary, fontWeight: "700", fontSize: 16 },
+  ccText: { color: colors.onBrandTertiary, fontWeight: "700", fontSize: 15,
+            fontFamily: font.bodyBold },
   phoneInput: {
     flex: 1,
     backgroundColor: colors.surface,
     borderWidth: 1, borderColor: colors.border,
     borderRadius: radius.md,
-    paddingHorizontal: spacing.md, paddingVertical: 14,
-    fontSize: 18, color: colors.onSurface,
+    paddingHorizontal: spacing.md, paddingVertical: 12,
+    fontSize: 17, color: colors.onSurface,
+    fontFamily: font.body,
   },
 
   otpInput: {
     backgroundColor: colors.surface,
     borderWidth: 1, borderColor: colors.border,
     borderRadius: radius.md,
-    paddingVertical: 16,
-    fontSize: 28, color: colors.onSurface,
-    textAlign: "center", letterSpacing: 12,
-    marginVertical: spacing.md,
+    paddingVertical: 14,
+    fontSize: 26, color: colors.onSurface,
+    textAlign: "center", letterSpacing: 10,
+    marginTop: spacing.xs, marginBottom: spacing.sm,
+    fontFamily: font.bodyBold,
   },
 
   cta: {
     backgroundColor: colors.brand,
-    paddingVertical: 16,
+    paddingVertical: 14,
     borderRadius: radius.md,
     alignItems: "center",
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
   },
-  ctaText: { color: colors.onBrand, fontWeight: "700", fontSize: 16, letterSpacing: 0.3 },
+  ctaText: { color: colors.onBrand, fontWeight: "700", fontSize: 15,
+             letterSpacing: 0.3, fontFamily: font.bodyBold },
 
-  ghost: { paddingVertical: spacing.md, alignItems: "center" },
-  ghostText: { color: colors.brand, fontWeight: "600" },
+  ghost: { paddingVertical: spacing.md - 2, alignItems: "center" },
+  ghostText: { color: colors.brand, fontWeight: "600",
+               fontFamily: font.bodyBold },
 
   error: {
-    color: colors.error, fontSize: 14, marginTop: spacing.sm,
-    backgroundColor: "#FBE9E9", padding: spacing.md, borderRadius: radius.sm,
+    color: colors.error, fontSize: 13, marginTop: spacing.xs,
+    backgroundColor: "#FBE9E9", paddingVertical: 10,
+    paddingHorizontal: spacing.md, borderRadius: radius.sm,
+    fontFamily: font.body,
   },
-  hint: { color: colors.onSurfaceMuted, fontSize: 12, marginTop: spacing.lg, textAlign: "center" },
+  hintBlock: {
+    marginTop: spacing.lg, paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.divider,
+  },
+  hintLabel: {
+    color: colors.onSurfaceMuted, fontSize: 11,
+    fontFamily: font.bodyBold, fontWeight: "700",
+    letterSpacing: 0.8, textTransform: "uppercase",
+    marginBottom: spacing.xs,
+  },
+  hintLine: { color: colors.onSurfaceMuted, fontSize: 12, lineHeight: 18,
+              fontFamily: font.body },
+  hintRole: { color: colors.onBrandTertiary, fontFamily: font.bodyBold,
+              fontWeight: "700" },
 
   devOtp: {
     backgroundColor: colors.warningBg,
@@ -250,6 +294,8 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     marginVertical: spacing.sm,
   },
-  devOtpLabel: { color: colors.warning, fontWeight: "700", fontSize: 12, letterSpacing: 1 },
-  devOtpCode: { color: colors.onSurface, fontWeight: "700", fontSize: 22, letterSpacing: 6 },
+  devOtpLabel: { color: colors.warning, fontWeight: "700", fontSize: 11,
+                 letterSpacing: 1, fontFamily: font.bodyBold },
+  devOtpCode: { color: colors.onSurface, fontWeight: "700", fontSize: 20,
+                letterSpacing: 5, fontFamily: font.bodyBold },
 });
