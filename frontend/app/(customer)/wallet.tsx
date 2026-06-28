@@ -8,8 +8,28 @@ import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
-import { walletApi, WalletInfo } from "@/src/lib/api";
+import { walletApi, WalletInfo, WalletTxn } from "@/src/lib/api";
 import { colors, spacing, radius, shadow } from "@/src/lib/theme";
+
+function dateLabel(iso: string): string {
+  const d = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate();
+  if (sameDay(d, today)) return "Today";
+  if (sameDay(d, yesterday)) return "Yesterday";
+  return d.toLocaleString("en-IN", { weekday: "long",
+                                      day: "numeric", month: "short" });
+}
+
+function dateKey(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
 
 export default function CustomerWallet() {
   const router = useRouter();
@@ -34,7 +54,7 @@ export default function CustomerWallet() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setSent(amount);
       setTimeout(() => router.push("/(customer)/support"), 800);
-    } catch (e) {
+    } catch {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setRequesting(null);
@@ -47,15 +67,24 @@ export default function CustomerWallet() {
 
   const low = wallet.low;
 
+  // Group recent txns by calendar date (newest first).
+  const sorted = [...wallet.recent].sort((a, b) =>
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const groups: { key: string; label: string; items: WalletTxn[] }[] = [];
+  let current: { key: string; label: string; items: WalletTxn[] } | null = null;
+  for (const t of sorted) {
+    const k = dateKey(t.created_at);
+    if (!current || current.key !== k) {
+      current = { key: k, label: dateLabel(t.created_at), items: [] };
+      groups.push(current);
+    }
+    current.items.push(t);
+  }
+
   return (
     <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.header}>
-        <Pressable testID="wallet-back" onPress={() => router.back()}
-          style={styles.backBtn}>
-          <Feather name="arrow-left" size={20} color={colors.onSurface} />
-        </Pressable>
         <Text style={styles.title}>Wallet</Text>
-        <View style={{ width: 36 }} />
       </View>
 
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 100 }}
@@ -87,33 +116,6 @@ export default function CustomerWallet() {
               </Text>
             </View>
           )}
-        </View>
-
-        {/* Pricing */}
-        <Text style={styles.section}>Per-meal pricing</Text>
-        <View style={styles.priceCard}>
-          <View style={styles.priceHeaderRow}>
-            <Text style={[styles.priceMeal, { flex: 1.2 }]}>Meal</Text>
-            <Text style={styles.priceColHead}>Single</Text>
-            <Text style={styles.priceColHead}>Couple</Text>
-            <Text style={styles.priceColHead}>Family</Text>
-          </View>
-          {([
-            ["breakfast", "Breakfast", wallet.pricing.breakfast],
-            ["lunch_with_rice", "Lunch (with rice)", wallet.pricing.lunch_with_rice],
-            ["lunch_without_rice", "Lunch (no rice)", wallet.pricing.lunch_without_rice],
-            ["dinner", "Dinner", wallet.pricing.dinner],
-          ] as const).map(([key, label, prices], i) => (
-            <View key={key} style={[styles.priceGridRow, i > 0 && styles.priceDiv]}>
-              <Text style={[styles.priceMeal, { flex: 1.2 }]}>{label}</Text>
-              <Text style={styles.priceCell}>₹{prices.single}</Text>
-              <Text style={styles.priceCell}>₹{prices.couple}</Text>
-              <Text style={styles.priceCell}>₹{prices.family}</Text>
-            </View>
-          ))}
-          <Text style={styles.priceFoot}>
-            Single = 1 · Couple = 2 · Family = 4 members
-          </Text>
         </View>
 
         {/* Top-up suggestions */}
@@ -151,9 +153,9 @@ export default function CustomerWallet() {
           </Text>
         )}
 
-        {/* History */}
-        <Text style={styles.section}>Recent activity</Text>
-        {wallet.recent.length === 0 ? (
+        {/* History grouped by date */}
+        <Text style={styles.section}>Activity</Text>
+        {groups.length === 0 ? (
           <View style={styles.emptyHist}>
             <Feather name="clock" size={20} color={colors.onSurfaceMuted} />
             <Text style={styles.emptyHistText}>
@@ -161,44 +163,48 @@ export default function CustomerWallet() {
             </Text>
           </View>
         ) : (
-          <View style={styles.histCard}>
-            {wallet.recent.map((t, i) => {
-              const isCredit = t.type === "credit";
-              return (
-                <View key={t.id}
-                  style={[styles.txnRow, i > 0 && styles.txnDiv]}
-                  testID={`txn-${t.id}`}>
-                  <View style={[styles.txnIcon,
-                    { backgroundColor: isCredit ? "#E5EFE5" : "#FBE9E9" }]}>
-                    <Feather
-                      name={isCredit ? "arrow-down-left" : "arrow-up-right"}
-                      size={14}
-                      color={isCredit ? colors.success : colors.error}
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.txnReason} numberOfLines={2}>
-                      {t.reason || (isCredit ? "Top-up" : "Delivery")}
-                    </Text>
-                    <Text style={styles.txnDate}>
-                      {new Date(t.created_at).toLocaleString([],
-                        { day: "numeric", month: "short", hour: "2-digit",
-                          minute: "2-digit" })}
-                    </Text>
-                  </View>
-                  <View style={{ alignItems: "flex-end" }}>
-                    <Text style={[styles.txnAmt,
-                      { color: isCredit ? colors.success : colors.error }]}>
-                      {isCredit ? "+" : "−"}₹{t.amount.toFixed(0)}
-                    </Text>
-                    <Text style={styles.txnBal}>
-                      Bal ₹{t.balance_after.toFixed(0)}
-                    </Text>
-                  </View>
-                </View>
-              );
-            })}
-          </View>
+          groups.map((g) => (
+            <View key={g.key} testID={`txn-group-${g.key}`}>
+              <Text style={styles.dateHeader}>{g.label}</Text>
+              <View style={styles.histCard}>
+                {g.items.map((t, i) => {
+                  const isCredit = t.type === "credit";
+                  return (
+                    <View key={t.id}
+                      style={[styles.txnRow, i > 0 && styles.txnDiv]}
+                      testID={`txn-${t.id}`}>
+                      <View style={[styles.txnIcon,
+                        { backgroundColor: isCredit ? "#E5EFE5" : "#FBE9E9" }]}>
+                        <Feather
+                          name={isCredit ? "arrow-down-left" : "arrow-up-right"}
+                          size={14}
+                          color={isCredit ? colors.success : colors.error}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.txnReason} numberOfLines={2}>
+                          {t.reason || (isCredit ? "Top-up" : "Delivery")}
+                        </Text>
+                        <Text style={styles.txnDate}>
+                          {new Date(t.created_at).toLocaleTimeString([],
+                            { hour: "2-digit", minute: "2-digit" })}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: "flex-end" }}>
+                        <Text style={[styles.txnAmt,
+                          { color: isCredit ? colors.success : colors.error }]}>
+                          {isCredit ? "+" : "−"}₹{t.amount.toFixed(0)}
+                        </Text>
+                        <Text style={styles.txnBal}>
+                          Bal ₹{t.balance_after.toFixed(0)}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          ))
         )}
       </ScrollView>
     </SafeAreaView>
@@ -209,86 +215,67 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   header: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
+    paddingHorizontal: spacing.lg, paddingTop: spacing.md,
+    paddingBottom: spacing.xs,
   },
-  backBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
-  title: { fontSize: 22, fontWeight: "700", color: colors.onSurface,
-           letterSpacing: -0.3 },
+  title: { fontSize: 26, fontWeight: "700", color: colors.onSurface,
+           letterSpacing: -0.5 },
 
-  heroCard: {
-    backgroundColor: colors.surfaceInverse,
-    borderRadius: radius.lg, padding: spacing.xl,
-    alignItems: "center", ...shadow.card,
-  },
-  heroCardWarn: { backgroundColor: "#3A1F1A" },
-  heroLabel: { color: colors.brandTertiary, fontSize: 12, fontWeight: "700",
-               letterSpacing: 1, textTransform: "uppercase" },
-  heroAmount: { color: colors.onSurfaceInverse, fontSize: 48, fontWeight: "700",
-                letterSpacing: -1, marginTop: spacing.sm },
-  heroMeta: { flexDirection: "row", marginTop: spacing.lg, gap: spacing.xl,
-              alignItems: "center" },
+  heroCard: { backgroundColor: colors.brand, borderRadius: radius.lg,
+              padding: spacing.xl, alignItems: "center", ...shadow.card },
+  heroCardWarn: { backgroundColor: colors.error },
+  heroLabel: { color: colors.onBrand, fontSize: 12, fontWeight: "700",
+               letterSpacing: 0.5, textTransform: "uppercase", opacity: 0.85 },
+  heroAmount: { color: colors.onBrand, fontSize: 44, fontWeight: "700",
+                letterSpacing: -1, marginTop: 4 },
+  heroMeta: { flexDirection: "row", alignItems: "center", marginTop: spacing.lg,
+              gap: spacing.xl },
   metaCol: { alignItems: "center" },
-  metaNum: { color: colors.onSurfaceInverse, fontSize: 18, fontWeight: "700" },
-  metaLabel: { color: colors.brandTertiary, fontSize: 11, fontWeight: "600",
-               marginTop: 2 },
-  metaDivider: { width: 1, height: 30, backgroundColor: "rgba(255,255,255,0.2)" },
+  metaNum: { color: colors.onBrand, fontSize: 18, fontWeight: "700" },
+  metaLabel: { color: colors.onBrand, fontSize: 11, opacity: 0.85, marginTop: 2 },
+  metaDivider: { width: 1, height: 32, backgroundColor: "rgba(255,255,255,0.3)" },
   warnRow: { flexDirection: "row", alignItems: "center", gap: 6,
-             marginTop: spacing.lg, backgroundColor: "rgba(255,255,255,0.1)",
-             paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-             borderRadius: radius.md },
-  warnText: { color: "#FFC7C7", fontSize: 12, fontWeight: "600" },
+             marginTop: spacing.md, backgroundColor: colors.surface,
+             paddingHorizontal: spacing.sm, paddingVertical: 6,
+             borderRadius: radius.pill },
+  warnText: { color: colors.error, fontSize: 12, fontWeight: "700" },
 
   section: { fontSize: 12, fontWeight: "700", color: colors.onSurfaceMuted,
-             letterSpacing: 0.5, marginTop: spacing.xl, marginBottom: spacing.sm,
+             letterSpacing: 0.5, marginTop: spacing.xl, marginBottom: spacing.xs,
              textTransform: "uppercase" },
-  helper: { color: colors.onSurfaceMuted, fontSize: 13, marginBottom: spacing.md },
+  helper: { color: colors.onSurfaceMuted, fontSize: 12,
+            marginBottom: spacing.md },
 
-  priceCard: { backgroundColor: colors.surfaceSecondary, borderRadius: radius.lg,
-               padding: spacing.lg, ...shadow.card },
-  priceHeaderRow: { flexDirection: "row", paddingBottom: spacing.sm,
-                    borderBottomWidth: 1, borderBottomColor: colors.divider },
-  priceColHead: { flex: 1, textAlign: "center", fontSize: 11, fontWeight: "700",
-                  color: colors.onSurfaceMuted, letterSpacing: 0.5,
-                  textTransform: "uppercase" },
-  priceGridRow: { flexDirection: "row", alignItems: "center",
-                  paddingVertical: spacing.sm },
-  priceDiv: { borderTopWidth: 1, borderTopColor: colors.divider },
-  priceMeal: { fontSize: 13, fontWeight: "700", color: colors.onSurface },
-  priceCell: { flex: 1, textAlign: "center", fontSize: 14,
-               color: colors.onSurface, fontWeight: "600" },
-  priceFoot: { fontSize: 11, color: colors.onSurfaceMuted,
-               marginTop: spacing.sm, fontStyle: "italic" },
-
-  chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  chipsRow: { flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" },
   topupChip: {
-    flexBasis: "47%", flexGrow: 1, backgroundColor: colors.brand,
-    paddingVertical: spacing.md, borderRadius: radius.md,
-    alignItems: "center", ...shadow.card,
+    flexBasis: "30%", flexGrow: 1,
+    backgroundColor: colors.brand, borderRadius: radius.md,
+    paddingVertical: spacing.md, alignItems: "center", ...shadow.card,
   },
   topupChipSent: { backgroundColor: colors.success },
-  topupAmt: { color: colors.onBrand, fontWeight: "700", fontSize: 20,
-              letterSpacing: -0.3 },
-  topupDays: { color: colors.brandTertiary, fontSize: 11, fontWeight: "600",
-               marginTop: 2 },
-  successText: { color: colors.success, fontWeight: "700", marginTop: spacing.md,
-                 textAlign: "center" },
+  topupAmt: { color: colors.onBrand, fontSize: 18, fontWeight: "700" },
+  topupDays: { color: colors.onBrand, fontSize: 10, opacity: 0.85, marginTop: 2 },
+  successText: { color: colors.success, fontWeight: "700",
+                 marginTop: spacing.md, textAlign: "center" },
 
-  emptyHist: { alignItems: "center", paddingVertical: spacing.xl, gap: spacing.sm,
-               backgroundColor: colors.surfaceSecondary, borderRadius: radius.lg },
-  emptyHistText: { color: colors.onSurfaceMuted, fontSize: 13, textAlign: "center",
-                   maxWidth: 240 },
-
+  dateHeader: { fontSize: 13, fontWeight: "700", color: colors.brand,
+                marginTop: spacing.md, marginBottom: spacing.xs,
+                paddingHorizontal: 2 },
   histCard: { backgroundColor: colors.surfaceSecondary, borderRadius: radius.lg,
               padding: spacing.md, ...shadow.card },
-  txnRow: { flexDirection: "row", alignItems: "center", gap: spacing.md,
+  txnRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm,
             paddingVertical: spacing.sm },
-  txnDiv: { borderTopWidth: 1, borderTopColor: colors.divider },
-  txnIcon: { width: 32, height: 32, borderRadius: 16, alignItems: "center",
+  txnDiv: { borderTopWidth: StyleSheet.hairlineWidth,
+            borderTopColor: colors.divider, paddingTop: spacing.md },
+  txnIcon: { width: 28, height: 28, borderRadius: 14, alignItems: "center",
              justifyContent: "center" },
-  txnReason: { fontSize: 13, color: colors.onSurface, fontWeight: "600" },
-  txnDate: { fontSize: 11, color: colors.onSurfaceMuted, marginTop: 1 },
+  txnReason: { fontSize: 13, fontWeight: "600", color: colors.onSurface },
+  txnDate: { fontSize: 11, color: colors.onSurfaceMuted, marginTop: 2 },
   txnAmt: { fontSize: 14, fontWeight: "700" },
   txnBal: { fontSize: 10, color: colors.onSurfaceMuted, marginTop: 1 },
+
+  emptyHist: { flexDirection: "row", alignItems: "center",
+               gap: spacing.sm, backgroundColor: colors.surfaceSecondary,
+               borderRadius: radius.md, padding: spacing.lg },
+  emptyHistText: { color: colors.onSurfaceMuted, fontSize: 13, flex: 1 },
 });

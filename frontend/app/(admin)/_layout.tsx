@@ -45,6 +45,9 @@ export default function AdminLayout() {
       <Tabs.Screen name="pricing" options={{
         href: null,  // reached from the dashboard shortcut card
       }} />
+      <Tabs.Screen name="team" options={{
+        href: null,  // reached from the dashboard shortcut card
+      }} />
     </Tabs>
   );
 }

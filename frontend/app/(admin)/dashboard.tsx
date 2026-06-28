@@ -113,6 +113,23 @@ export default function AdminDashboard() {
           <Feather name="chevron-right" size={18} color={colors.onSurfaceMuted} />
         </Pressable>
 
+        <Pressable
+          testID="open-team-manager"
+          onPress={() => router.push("/(admin)/team")}
+          style={[styles.shortcutCard, { marginTop: spacing.md }]}
+        >
+          <View style={[styles.shortcutIcon, { backgroundColor: colors.brandSecondary }]}>
+            <Feather name="users" size={18} color={colors.onSurface} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.shortcutTitle}>Manage team</Text>
+            <Text style={styles.shortcutSub}>
+              Add admins, support agents and delivery partners
+            </Text>
+          </View>
+          <Feather name="chevron-right" size={18} color={colors.onSurfaceMuted} />
+        </Pressable>
+
         <Text style={styles.sectionH}>Delivery team</Text>
         <View style={styles.card}>
           {delivery.length === 0 ? (

@@ -174,7 +174,6 @@ def test_patch_lunch_variant_and_debit_reason(base_url, api_client,
 
 # ===== 5. Onboarding completes with wallet top-up =====
 import random
-import time
 def test_onboarding_with_initial_topup_creates_welcome_credit(base_url, api_client):
     # Use a randomized phone to keep the test idempotent across repeated runs.
     phone = f"+9199{int(time.time()) % 10}{random.randint(10000000, 99999999)}"

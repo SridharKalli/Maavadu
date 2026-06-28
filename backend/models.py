@@ -166,6 +166,14 @@ class UpdateOrderMealReq(BaseModel):
     lunch_variant: Optional[LunchVariant] = None
 
 
+class UpdateSubscriptionReq(BaseModel):
+    """Profile-level default preferences. Updating these reshapes any
+    upcoming orders that are still before their 8 PM cutoff."""
+    meals: Optional[List[MealKey]] = None
+    default_size: Optional[SizeKey] = None
+    default_lunch_variant: Optional[LunchVariant] = None
+
+
 class AdminCreateUserReq(BaseModel):
     phone: str
     name: str

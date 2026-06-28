@@ -1,0 +1,48 @@
+{
+  "summary": "Iteration 7 — verified the new Customer UX reshuffle (4-tab bar, home header icons, support card, home pricing, confirm modal), profile Daily-defaults, wallet layout, and the new Admin team manager. Backend: 5 NEW pytest tests added (PATCH /api/subscriptions/me reshape; GET /api/support/contact; POST /api/admin/users create + duplicate). Full regression: 43/43 PASS (38 prior + 5 new). Frontend: all listed flows verified end-to-end on the mobile web preview. Confirm modal (testIDs confirm-change-yes/no) appears on both size and variant changes; tapping 'no' keeps state, tapping 'yes' persists via API. Admin /(admin)/team renders the three groups, the add modal creates a new agent which appears immediately under Support. One important DATA finding: Sharma's seeded 2026-06-29 order is marked delivered=True, which (a) makes PATCH /api/subscriptions/me skip that day's reshape because the route filters `delivered: False`, and (b) the customer Home still surfaces this 'tomorrow' meal as 'plan' even though it's already delivered. I manually flipped that flag during testing to validate reshape logic. Main agent should harden the seed (or the seed-on-startup reset) so any future-dated orders start with delivered=False.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PATCH /api/subscriptions/me", "issue": "Reshape loop filters `delivered: False` — correct semantically, but combined with seed state that has tomorrow's order delivered=True, the route silently leaves tomorrow unchanged. Consider either (a) ensuring seed never marks future dates delivered, or (b) returning the list of reshaped order_ids in the response so callers know."},
+      {"endpoint": "GET /api/orders/upcoming", "issue": "Returns orders regardless of `delivered` flag. If a future-dated order is somehow delivered=True (as the current Sharma seed shows for 2026-06-29), the customer Home renders it under 'Tomorrow's plan' with no indication that it's locked/delivered. Minor UX concern."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "shadow.card across theme", "issue": "RN-Web console warning persists: '\"shadow*\" style props are deprecated. Use \"boxShadow\".' Unchanged from iter 5/6. Reference: /app/frontend/src/lib/theme.ts (shadow.card)."},
+      {"component": "props.pointerEvents (RN-Web bridge)", "issue": "Console warning: 'props.pointerEvents is deprecated. Use style.pointerEvents'. Unchanged."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter7_team_subs_support.py (NEW — 5 tests, all pass)",
+    "/app/test_reports/pytest/pytest_iter7.xml"
+  ],
+  "action_items": [
+    "(Optional) Ensure the bootstrap/seed script in /app/backend never marks future-dated orders as delivered=True. Today the Sharma user has 2026-06-29 (tomorrow as of test time) flagged delivered=True; this breaks the documented PATCH /api/subscriptions/me reshape on tomorrow and renders a 'delivered' meal under 'Tomorrow's plan' on the customer home.",
+    "(Optional, minor) prefs-saved toast on /(customer)/profile auto-dismisses after 2400 ms via setTimeout; this is fine for users but slightly flaky for automated polling. Consider keeping a stable 'Saved ✓' label on the button itself for ~5 s.",
+    "(Optional, minor) Existing RN-Web warnings (shadow*, props.pointerEvents) still log on every screen mount."
+  ],
+  "critical_code_review_comments": [
+    "routers/subscriptions.py update_subscription: the reshape correctly skips cutoff-passed dates and idempotently tops up missing days. The `delivered: False` filter is correct, but pair it with a clean seed.",
+    "routers/admin.py admin_create_user: duplicate-phone guard returns 400 (verified). Onboarded flag is set True for non-customer roles (verified).",
+    "(customer)/_layout.tsx: profile route correctly uses `href: null` to keep the tab out of the bottom bar.",
+    "(customer)/home.tsx: confirm modal correctly gates BOTH size and variant changes via the same pending state machine; YES calls ordersApi.modify, NO clears pending without any API call.",
+    "(admin)/team.tsx: phone normalisation (+91 prefix, strip leading 0) is sensible; modal closes on successful submit and reloads users.",
+    "(customer)/profile.tsx savePrefs: setSavedFlag('prefs') with a 2400 ms timeout. Consider exposing a longer stable indicator for E2E tests."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter7_team_subs_support.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (43/43 pytest)",
+    "frontend": "100% (12/12 UI flows from the review request verified end-to-end on mobile viewport 390x844)"
+  },
+  "seed_data_creation": "Test created two transient users (+919000077777 'Test Agent 2' via pytest and +919000088888 'Test Agent Z' via UI). Both deleted from MongoDB at end. Sharma's subscription mutated during testing and fully restored to seed defaults (meals=B+L+D, default_size=couple, default_lunch_variant=with_rice). Sharma's 2026-06-29 order had delivered=True from seed; I flipped it to False during the PATCH reshape test — left as-is for now (delivered: False).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "BACKEND: dev OTP lives in POST /api/auth/send-otp response under `dev_otp`. PATCH /api/subscriptions/me ignores delivered orders during reshape — make sure your test fixture sets the tomorrow order's delivered=False before asserting. FRONTEND: Expo Router Tabs keeps all four tab screens mounted in the DOM, so `page.get_by_text('Per-meal pricing')` will return 1 even when on Wallet (the match comes from the hidden Home subtree). To verify wallet really has no pricing card, either grep the wallet.tsx source (confirmed 0 occurrences) or scope the locator to `[data-testid=\"wallet-screen\"]`. Confirm modal testIDs are the SAME for size and variant changes — keep that in mind when chaining clicks. The prefs-saved toast auto-dismisses in 2.4s — poll within that window or assert via the API (GET /api/subscriptions/me).",
+  "rca_of_issue": "Symptom: first run of test_subscription_default_size_family_reshapes_tomorrow asserted tomorrow's lunch.size==='family' after PATCH default_size=family but observed size==='couple'. RCA: /app/backend/routers/subscriptions.py:49 reshape query filters `delivered: False`. Sharma's seeded 2026-06-29 order had delivered=True (verified via direct MongoDB inspection: `db.orders.find_one({user_id, date:'2026-06-29'})` → delivered: True). The reshape loop therefore never visited that document, leaving lunch.size at the prior 'couple' value. Mitigation applied in this iteration: ran `db.orders.update_many({user_id, date:{$gte:'2026-06-29'}}, {$set:{delivered:False}})` once, after which all 5 new tests + the full 43-test pytest suite pass green. Permanent fix is at the seed layer."
+}

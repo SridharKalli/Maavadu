@@ -144,15 +144,27 @@ export const ordersApi = {
 
 export interface Subscription {
   id: string; plan_type: PlanType; meals: MealKey[];
-  default_quantity: number; start_date: string; end_date: string; active: boolean;
+  default_quantity: number; default_size: SizeKey;
+  default_lunch_variant: LunchVariant;
+  start_date: string; end_date: string; active: boolean;
 }
 export const subsApi = {
   me: () => api<Subscription | null>("/subscriptions/me"),
+  update: (payload: {
+    meals?: MealKey[]; default_size?: SizeKey;
+    default_lunch_variant?: LunchVariant;
+  }) => api<Subscription>("/subscriptions/me",
+    { method: "PATCH", body: JSON.stringify(payload) }),
 };
 
 // ---- Admin --------------------------------------------------------------
 export const adminApi = {
   users: () => api<User[]>("/admin/users"),
+  createUser: (payload: {
+    phone: string; name: string; role: Role;
+    address?: string; pincode?: string; notes?: string;
+  }) => api<User>("/admin/users",
+    { method: "POST", body: JSON.stringify(payload) }),
   stats: () => api<{
     total_customers: number; pending_onboarding: number;
     active_subscriptions: number; today_orders: number;
@@ -189,6 +201,8 @@ export interface SupportMessage {
 }
 export const supportApi = {
   myThread: () => api<SupportThread>("/support/me"),
+  contact: () =>
+    api<{ name: string; phone: string; available: string }>("/support/contact"),
   listThreads: () => api<SupportThread[]>("/support/threads"),
   messages: (threadId: string) =>
     api<SupportMessage[]>(`/support/threads/${threadId}/messages`),

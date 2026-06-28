@@ -7,6 +7,19 @@ from models import SendMessageReq, SupportMessage
 router = APIRouter()
 
 
+@router.get("/support/contact")
+async def support_contact(_: dict = Depends(get_current_user)):
+    """Public-to-customers info: who to talk to and where."""
+    agent = await db.users.find_one({"role": "agent"}, {"_id": 0})
+    if not agent:
+        return {"name": "Support", "phone": "", "available": "10am – 8pm"}
+    return {
+        "name": agent.get("name", "Support"),
+        "phone": agent.get("phone", ""),
+        "available": "10am – 8pm IST · all 7 days",
+    }
+
+
 @router.get("/support/me")
 async def my_thread(user: dict = Depends(get_current_user)):
     if user["role"] != "customer":
