@@ -1,0 +1,155 @@
+{
+  "app_name": "Home Tiffin Service",
+  "personality": "8 Hand-Drawn / Journal LIGHT with clean iOS-Native structural elements",
+  "personality_one_liner": "A warm, trustworthy, and distinctly home-made aesthetic emphasizing community and fresh daily meals over corporate efficiency.",
+  "color": {
+    "surface": "#F9F7F3",
+    "onSurface": "#2C2A28",
+    "surfaceSecondary": "#FFFFFF",
+    "onSurfaceSecondary": "#2C2A28",
+    "surfaceTertiary": "#F2E2D2",
+    "onSurfaceTertiary": "#8C4D33",
+    "surfaceInverse": "#2C2A28",
+    "onSurfaceInverse": "#F9F7F3",
+    "brand": "#C65D3B",
+    "brandPrimary": "#C65D3B",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#E8A365",
+    "onBrandSecondary": "#2C2A28",
+    "brandTertiary": "#F2E2D2",
+    "onBrandTertiary": "#8C4D33",
+    "success": "#6B8E6B",
+    "onSuccess": "#FFFFFF",
+    "warning": "#D9A05B",
+    "onWarning": "#2C2A28",
+    "error": "#B85C5C",
+    "onError": "#FFFFFF",
+    "info": "#66829A",
+    "onInfo": "#FFFFFF",
+    "border": "#E8E3DB",
+    "borderStrong": "#D9D0C1",
+    "divider": "#E8E3DB"
+  },
+  "typography": {
+    "displayFontFamily": "Fraunces",
+    "textFontFamily": "Nunito",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous vertical breathing room to feel organic. Use 'lg' (16) outer margins, and 'md' (12) inner padding for cards.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "1",
+  "navigation": "bottom_tabs",
+  "icon_set": "Feather",
+  "glassmorphism": {
+    "enabled": false,
+    "do's": [
+      "Skip glass to keep the rustic, matte, home-made aesthetic."
+    ],
+    "dont's": [
+      "No blurred overlays, no frosted cards. Use solid surfaceSecondary instead."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "CustomerHome",
+      "purpose": "Show today's menu and the critical 8 PM cutoff timer for tomorrow's modifications.",
+      "states": {
+        "loading": "Centered spinner with a 'Warming up...' message.",
+        "empty": "Empty state illustration of an empty tiffin. Text: 'No meals scheduled for today.'",
+        "error": "Error icon with 'Could not load today's menu.' and a Retry button."
+      },
+      "layout": "Root scroll view with a large Hero Card at the top displaying Today's Menu (using hero_background image with a dark scrim). Below it, a highly visible Warning-colored alert banner for the '8 PM Cutoff for Tomorrow'. Next, a list of tomorrow's meals (Breakfast/Lunch/Dinner) with action buttons (Skip Day, +1 Extra)."
+    },
+    {
+      "name": "WeeklyCalendar",
+      "purpose": "Allow customers to view the upcoming week's set menu and modify their daily orders.",
+      "states": {
+        "loading": "Skeleton of calendar list.",
+        "empty": "Illustration. 'Menu is being finalized for next week.'",
+        "error": "Failed to load calendar. Retry."
+      },
+      "layout": "Horizontal date strip at the top. Below, a vertical stack of meal cards (Breakfast, Lunch, Dinner). Each card shows what's cooking, and an action row (Skip / Add Qty) if before 8 PM."
+    },
+    {
+      "name": "DeliveryRoute",
+      "purpose": "Help the delivery person see today's route, mark deliveries, and collect empty hotboxes.",
+      "states": {
+        "loading": "Loading route...",
+        "empty": "Illustration. 'All deliveries complete! Great job.'",
+        "error": "Failed to load route."
+      },
+      "layout": "List view of delivery stops. Each row shows Customer Name, Address, and two checklist items: 'Deliver X Meals' and 'Collect Empty Hotbox'. Large tap targets for marking 'Done'. Uses solid cards with brandPrimary accents."
+    }
+  ],
+  "images": {
+    "hero_background": {
+      "url": "https://images.pexels.com/photos/35008222/pexels-photo-35008222.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "dark": "https://images.pexels.com/photos/36125185/pexels-photo-36125185.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Delicious Indian thali with chapati, rice, dal"
+    },
+    "empty_tiffin": {
+      "url": "https://images.unsplash.com/photo-1726726192151-6d4139ff229d",
+      "alt": "Empty lunch box tiffin"
+    },
+    "delivery_route": {
+      "url": "https://images.pexels.com/photos/6759307/pexels-photo-6759307.jpeg",
+      "alt": "Detailed road map for delivery route"
+    },
+    "hotbox_dabba": {
+      "url": "https://images.unsplash.com/photo-1780504863041-931cbb1d9694",
+      "alt": "Bicycle with colorful tiffin containers"
+    }
+  },
+  "haptics": {
+    "events": {
+      "button_press": "light",
+      "skip_meal": "medium",
+      "add_extra_meal": "light",
+      "mark_delivered": "success",
+      "collect_hotbox": "success",
+      "tab_change": "selection"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Use the '8 Hand-Drawn / Journal LIGHT' personality to keep the app warm and personal, matching the 'home-cooked' vibe.",
+    "Do NOT use glassmorphism. Stick to solid, matte surfaces (`surface` for background, `surfaceSecondary` for cards).",
+    "The 8 PM cutoff is a critical UX element. Display it prominently on the Customer Home screen using the warning color or a clear alert banner.",
+    "For the Customer Weekly Calendar, ensure the modifying actions (Skip / Add Qty) are disabled and visually greyed out if the current time is past the 8 PM cutoff for that specific day.",
+    "In the Delivery Route screen, the 'Collect Hotbox' action must be as prominent as the delivery action, since it's a unique operational requirement.",
+    "Use Fraunces (serif) for headings to give an editorial, high-quality touch to the food menus, and Nunito (rounded sans-serif) for body text for approachability.",
+    "Implement the gradient scrim pattern (top-to-bottom transparent to dark) strictly for the hero_background image where text is overlaid.",
+    "Create 3 distinct Tab bar setups based on user role. Customer: Home, Menu Calendar, Profile. Admin: Dashboard, Manage Menu, Orders. Delivery: Route, History, Profile."
+  ]
+}
