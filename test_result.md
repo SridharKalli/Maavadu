@@ -101,3 +101,152 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  Home-cooked tiffin service MVP for Chennai. Wallet-driven (BB-Daily style) prepaid
+  model. 3 roles (customer/admin/delivery/agent). Specific pricing grid (Breakfast,
+  Lunch with/without rice, Dinner across Single/Couple/Family-4 members).
+  Onboarding refactored to wallet top-up flow. Admin polish: sign-out + low-balance
+  stats. Predictive low-balance nudge auto-posts in support thread when <3 days runway.
+
+backend:
+  - task: "Pricing grid + wallet daily_burn math (Single/Couple/Family-4, lunch with/without rice)"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Updated Pricing model with breakfast (230/340/460), lunch_with_rice (268/385/530), lunch_without_rice (240/340/460), dinner (230/340/460). _debit_for_order computes via meal × size × variant. /wallet/me returns daily_burn + days_left."
+
+  - task: "Onboarding wallet refactor — drop plan_type, accept default_size + initial_topup"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "OnboardReq no longer has plan_type/default_quantity. Subscription is rolling (end=+365d). Optional initial_topup credits wallet via _record_wallet_txn."
+
+  - task: "Admin stats — add wallet_low (customers below threshold)"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "GET /api/admin/stats now returns wallet_low via Mongo aggregation comparing wallet_balance < wallet_threshold."
+
+  - task: "Predictive low-balance nudge in support thread"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "After every wallet debit, if days_left < 3, an agent-role system message is posted into the customer's support thread (de-duped per UTC day via [Auto · YYYY-MM-DD] prefix)."
+
+frontend:
+  - task: "Customer Home — pricing-aware segmented control + lunch variant toggle"
+    implemented: true
+    working: "NA"
+    file: "frontend/app/(customer)/home.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Fixed undefined SIZE_OPTIONS/mealToSize references (renamed to SEG_OPTIONS/mealCurrentSeg). Tomorrow card now shows With rice/No rice chips and Skip/Single/Couple/Family segmented with ₹ price below each label. Verified visually: ₹230/₹340/₹460 for breakfast couple-active."
+
+  - task: "Wallet pricing grid + top-up chips"
+    implemented: true
+    working: "NA"
+    file: "frontend/app/(customer)/wallet.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Verified visually: pricing table renders 4 rows (Breakfast, Lunch with rice, Lunch no rice, Dinner) × 3 size columns. Footer reads Single=1 · Couple=2 · Family=4 members."
+
+  - task: "Onboarding rewritten — preferences + wallet top-up step (3000/6000/10000/custom)"
+    implemented: true
+    working: "NA"
+    file: "frontend/app/onboarding.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Removed Day/Week/Month plan picker. New flow: menu → name → pincode → address → preferences (meals + Single/Couple/Family + Lunch with/without rice + live daily estimate) → topup (3000/6000/10000/custom with day-coverage hint, skip allowed) → done."
+
+  - task: "Admin Dashboard — sign-out button + Low Balance / Pincode stats"
+    implemented: true
+    working: "NA"
+    file: "frontend/app/(admin)/dashboard.tsx"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Added top-right log-out icon (with confirm Alert) + 6-card stat grid (Families, Active Subs, Today's Orders, Delivered, Low Balance, Pincodes). Customer list now shows wallet balance pill (red when below threshold)."
+
+metadata:
+  created_by: "main_agent"
+  version: "3.0"
+  test_sequence: 3
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Pricing grid + wallet daily_burn math (Single/Couple/Family-4, lunch with/without rice)"
+    - "Onboarding wallet refactor — drop plan_type, accept default_size + initial_topup"
+    - "Admin stats — add wallet_low (customers below threshold)"
+    - "Predictive low-balance nudge in support thread"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Session 3 changes ready for testing.
+      BACKEND:
+      • New pricing grid (Pricing model + _debit_for_order + /wallet/me daily_burn) — verify
+        couple Sharma (B+L+D with_rice) daily_burn=340+385+340=1065. (Visually confirmed.)
+      • POST /api/onboarding/complete now expects {default_size, default_lunch_variant,
+        initial_topup} — no plan_type / default_quantity. Use a fresh phone number,
+        send-otp → verify-otp → complete with initial_topup>0 → /wallet/me should
+        show that credit and a "Welcome top-up" txn.
+      • GET /api/admin/stats now returns wallet_low (Khan family +919999933333 is seeded
+        below threshold → expect wallet_low ≥ 1).
+      • Auto-nudge: marking Khan's order delivered should debit wallet and (since
+        balance ₹480, daily ~120 → days_left ≈ 4 not <3 actually). To trigger nudge,
+        credit a low customer to e.g. ₹100, mark next day order delivered, then check
+        their support thread — last message should start with "[Auto · YYYY-MM-DD]".
+
+      FRONTEND (already visually sanity-checked in browser):
+      • home.tsx pricing labels render and segmented works (couple/single/family).
+      • wallet.tsx renders the 4-row × 3-col pricing table with Family=4 members footer.
+      • Onboarding flow not yet end-to-end automated — would be good to dry-run a new
+        phone through all 7 steps and confirm wallet shows the initial top-up.
+      • Admin dashboard: sign-out icon visible top-right; 6 stat cards including
+        Low Balance + Pincodes.
+
+      Test priorities: Pricing math first, then onboarding API, then nudge.

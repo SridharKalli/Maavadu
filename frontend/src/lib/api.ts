@@ -76,7 +76,8 @@ export const onboarding = {
       `/onboarding/check-pincode/${code}`),
   complete: (payload: {
     name: string; address: string; pincode: string; notes?: string;
-    plan_type: PlanType; meals: MealKey[]; default_quantity: number;
+    meals: MealKey[]; default_size: SizeKey;
+    default_lunch_variant: LunchVariant; initial_topup?: number;
   }) => api<{ user: User; subscription: any }>("/onboarding/complete",
     { method: "POST", body: JSON.stringify(payload) }),
 };
@@ -110,7 +111,19 @@ export const menuApi = {
 };
 
 // ---- Orders -------------------------------------------------------------
-export interface OrderMeal { enabled: boolean; quantity: number; item_name: string }
+export type SizeKey = "single" | "couple" | "family";
+export type LunchVariant = "with_rice" | "without_rice";
+export interface SizePrices { single: number; couple: number; family: number }
+export interface PricingGrid {
+  breakfast: SizePrices;
+  lunch_with_rice: SizePrices;
+  lunch_without_rice: SizePrices;
+  dinner: SizePrices;
+}
+export interface OrderMeal {
+  enabled: boolean; quantity: number; size: SizeKey;
+  item_name: string; lunch_variant: LunchVariant | null;
+}
 export interface DailyOrder {
   id: string; user_id: string; date: string;
   breakfast: OrderMeal; lunch: OrderMeal; dinner: OrderMeal;
@@ -122,7 +135,7 @@ export interface DailyOrder {
 export const ordersApi = {
   upcoming: () => api<DailyOrder[]>("/orders/upcoming"),
   modify: (id: string, meal: MealKey,
-           patch: { enabled?: boolean; quantity?: number }) =>
+           patch: { enabled?: boolean; size?: SizeKey; lunch_variant?: LunchVariant }) =>
     api<DailyOrder>(`/orders/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ meal, ...patch }),
@@ -143,7 +156,7 @@ export const adminApi = {
   stats: () => api<{
     total_customers: number; pending_onboarding: number;
     active_subscriptions: number; today_orders: number;
-    delivered_today: number; pincodes: number;
+    delivered_today: number; pincodes: number; wallet_low: number;
   }>("/admin/stats"),
   orders: (date?: string) =>
     api<DailyOrder[]>(`/admin/orders${date ? `?date=${date}` : ""}`),
@@ -196,13 +209,15 @@ export interface WalletTxn {
 }
 export interface WalletInfo {
   balance: number; threshold: number;
-  pricing: { breakfast: number; lunch: number; dinner: number };
+  pricing: PricingGrid;
   daily_burn: number; days_left: number; low: boolean;
   recent: WalletTxn[]; suggested_topups: number[];
+  default_size: SizeKey; default_lunch_variant: LunchVariant;
+  subscribed_meals: MealKey[];
 }
 export const walletApi = {
   me: () => api<WalletInfo>("/wallet/me"),
-  pricing: () => api<{ breakfast: number; lunch: number; dinner: number }>("/wallet/pricing"),
+  pricing: () => api<PricingGrid>("/wallet/pricing"),
   requestTopup: (amount: number) =>
     api<{ sent: boolean; thread_id: string }>("/wallet/topup-request",
       { method: "POST", body: JSON.stringify({ amount }) }),

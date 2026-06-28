@@ -12,6 +12,7 @@ import { useRouter } from "expo-router";
 
 import {
   ordersApi, walletApi, DailyOrder, MealKey, WalletInfo, OrderMeal,
+  SizeKey, LunchVariant, PricingGrid,
 } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
 import { colors, spacing, radius, shadow, DAY_NAMES_FULL } from "@/src/lib/theme";
@@ -19,32 +20,31 @@ import { colors, spacing, radius, shadow, DAY_NAMES_FULL } from "@/src/lib/theme
 const HERO = "https://images.pexels.com/photos/35008222/pexels-photo-35008222.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940";
 const ALL_MEALS: MealKey[] = ["breakfast", "lunch", "dinner"];
 const MEAL_ICONS = { breakfast: "sunrise", lunch: "sun", dinner: "moon" } as const;
-const PLAN_LABEL = { day: "Day pass", week: "Weekly", month: "Monthly" } as const;
 
-type SizeKey = "skip" | "single" | "couple" | "family";
-const SIZE_OPTIONS: { key: SizeKey; label: string; qty: number; enabled: boolean }[] = [
-  { key: "skip", label: "Skip", qty: 0, enabled: false },
-  { key: "single", label: "Single", qty: 1, enabled: true },
-  { key: "couple", label: "Couple", qty: 2, enabled: true },
-  { key: "family", label: "Family", qty: 3, enabled: true },
+type SegKey = "skip" | "single" | "couple" | "family";
+const SEG_OPTIONS: { key: SegKey; label: string }[] = [
+  { key: "skip", label: "Skip" },
+  { key: "single", label: "Single" },
+  { key: "couple", label: "Couple" },
+  { key: "family", label: "Family" },
 ];
 
-function mealToSize(m: OrderMeal): SizeKey {
+function mealCurrentSeg(m: OrderMeal): SegKey {
   if (!m.enabled || m.quantity === 0) return "skip";
-  if (m.quantity === 1) return "single";
-  if (m.quantity === 2) return "couple";
-  return "family";
+  return (m.size as SegKey) || "single";
+}
+
+function priceFor(meal: MealKey, size: SizeKey,
+                  variant: LunchVariant, pricing?: PricingGrid): number {
+  if (!pricing) return 0;
+  if (meal === "lunch") return pricing[`lunch_${variant}` as const][size];
+  return pricing[meal][size];
 }
 
 function formatNice(dateStr: string) {
   const d = new Date(dateStr + "T00:00:00");
   return `${DAY_NAMES_FULL[d.getDay()]}, ${d.getDate()} ${d.toLocaleString("en-US",
     { month: "short" })}`;
-}
-
-function daysUntil(dateStr: string): number {
-  const target = new Date(dateStr + "T23:59:59");
-  return Math.ceil((target.getTime() - Date.now()) / (24 * 3600 * 1000));
 }
 
 export default function CustomerHome() {
@@ -83,16 +83,27 @@ export default function CustomerHome() {
         : ALL_MEALS);
   const MEALS = subscribedMeals.length > 0 ? subscribedMeals : ALL_MEALS;
 
-  async function setSize(orderId: string, meal: MealKey, size: SizeKey) {
-    const opt = SIZE_OPTIONS.find((o) => o.key === size)!;
+  async function setSize(orderId: string, meal: MealKey, size: SegKey) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
-      await ordersApi.modify(orderId, meal,
-        { enabled: opt.enabled, quantity: opt.qty });
+      if (size === "skip") {
+        await ordersApi.modify(orderId, meal, { enabled: false });
+      } else {
+        await ordersApi.modify(orderId, meal, { size });
+      }
       load();
     } catch {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
+  }
+
+  async function toggleLunchVariant(orderId: string, current: LunchVariant) {
+    Haptics.selectionAsync();
+    const next: LunchVariant = current === "with_rice" ? "without_rice" : "with_rice";
+    try {
+      await ordersApi.modify(orderId, "lunch", { lunch_variant: next });
+      load();
+    } catch {}
   }
 
   if (loading) {
@@ -171,12 +182,12 @@ export default function CustomerHome() {
           )}
 
           {/* TODAY */}
-          <Text style={styles.section}>Today's menu</Text>
+          <Text style={styles.section}>Today&apos;s menu</Text>
           {today ? (
             <View style={styles.card} testID="today-card">
               {MEALS.map((m, i) => {
                 const meal = today[m];
-                const sz = mealToSize(meal);
+                const sz = mealCurrentSeg(meal);
                 return (
                   <View key={m} style={[styles.todayRow, i > 0 && styles.divider]}>
                     <Feather name={MEAL_ICONS[m]} size={20}
@@ -192,7 +203,7 @@ export default function CustomerHome() {
                     <View style={[styles.statusChip, styles[`chip_${sz}`]]}>
                       <Text style={[styles.statusChipText,
                         sz === "skip" && { color: colors.onSurfaceMuted }]}>
-                        {SIZE_OPTIONS.find((o) => o.key === sz)?.label}
+                        {SEG_OPTIONS.find((o) => o.key === sz)?.label}
                       </Text>
                     </View>
                   </View>
@@ -211,12 +222,12 @@ export default function CustomerHome() {
             <Feather name="clock" size={18} color={colors.warning} />
             <Text style={styles.cutoffText}>
               <Text style={{ fontWeight: "700" }}>8 PM cutoff</Text>{" "}
-              to change tomorrow's order
+              to change tomorrow&apos;s order
             </Text>
           </View>
 
           {/* TOMORROW */}
-          <Text style={styles.section}>Tomorrow's plan</Text>
+          <Text style={styles.section}>Tomorrow&apos;s plan</Text>
           {tomorrow ? (
             <View testID="tomorrow-card">
               <Text style={styles.tomorrowDate}>{formatNice(tomorrow.date)}</Text>
@@ -230,8 +241,10 @@ export default function CustomerHome() {
               )}
               {MEALS.map((m) => {
                 const meal = tomorrow[m];
-                const sz = mealToSize(meal);
+                const sz = mealCurrentSeg(meal);
                 const locked = !!tomorrow.cutoff_passed;
+                const variant: LunchVariant =
+                  (meal.lunch_variant as LunchVariant) || "with_rice";
                 return (
                   <View key={m} style={styles.mealCard} testID={`tomorrow-${m}-card`}>
                     <View style={styles.mealCardHead}>
@@ -247,10 +260,43 @@ export default function CustomerHome() {
                       </View>
                     </View>
 
-                    {/* Segmented size selector */}
+                    {m === "lunch" && (
+                      <View style={styles.variantRow}>
+                        {(["with_rice", "without_rice"] as LunchVariant[]).map((v) => {
+                          const active = variant === v;
+                          return (
+                            <Pressable
+                              key={v}
+                              testID={`tomorrow-lunch-variant-${v}`}
+                              disabled={locked}
+                              onPress={() => !active &&
+                                toggleLunchVariant(tomorrow.id, variant)}
+                              style={[styles.variantChip,
+                                active && styles.variantChipActive,
+                                locked && { opacity: 0.4 }]}
+                            >
+                              <Feather
+                                name={active ? "check-circle" : "circle"}
+                                size={12}
+                                color={active ? colors.onBrand : colors.onSurfaceMuted}
+                              />
+                              <Text style={[styles.variantText,
+                                active && { color: colors.onBrand }]}>
+                                {v === "with_rice" ? "With rice" : "No rice"}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    )}
+
                     <View style={styles.segmented}>
-                      {SIZE_OPTIONS.map((opt) => {
+                      {SEG_OPTIONS.map((opt) => {
                         const active = opt.key === sz;
+                        const isSkip = opt.key === "skip";
+                        const price = isSkip
+                          ? 0
+                          : priceFor(m, opt.key as SizeKey, variant, wallet?.pricing);
                         return (
                           <Pressable
                             key={opt.key}
@@ -259,21 +305,20 @@ export default function CustomerHome() {
                             onPress={() => !active && setSize(tomorrow.id, m, opt.key)}
                             style={[
                               styles.segBtn,
-                              active && (opt.key === "skip"
-                                ? styles.segBtnSkipActive : styles.segBtnActive),
+                              active && (isSkip ? styles.segBtnSkipActive
+                                                : styles.segBtnActive),
                               locked && { opacity: 0.4 },
                             ]}
                           >
                             <Text style={[styles.segLabel,
-                              active && (opt.key === "skip"
-                                ? { color: colors.error }
-                                : { color: colors.onBrand })]}>
+                              active && (isSkip ? { color: colors.error }
+                                                : { color: colors.onBrand })]}>
                               {opt.label}
                             </Text>
-                            {opt.qty > 0 && (
+                            {!isSkip && (
                               <Text style={[styles.segQty,
                                 active && { color: colors.onBrand }]}>
-                                ×{opt.qty}
+                                ₹{price}
                               </Text>
                             )}
                           </Pressable>
@@ -410,4 +455,15 @@ const styles = StyleSheet.create({
               letterSpacing: 0.2 },
   segQty: { fontSize: 10, color: colors.onSurfaceMuted, marginTop: 1,
             fontWeight: "700" },
+
+  variantRow: { flexDirection: "row", gap: 6, marginBottom: spacing.sm },
+  variantChip: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: spacing.sm, paddingVertical: 6,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  variantChipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
+  variantText: { fontSize: 11, fontWeight: "700", color: colors.onSurface },
 });

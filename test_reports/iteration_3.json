@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 3 backend tested end-to-end against the public preview URL. All 12 NEW tests pass (test_iteration3_wallet_pricing.py): new pricing grid shape, Sharma daily_burn=1065, Iyer daily_burn=470, lunch-variant PATCH + delivery debit with reason 'lunch cou (no rice)' = ₹340, onboarding initial_topup=3000 creates 'Welcome top-up' credit, onboarding silently ignores legacy plan_type/default_quantity, admin /stats includes wallet_low>=1, and predictive low-balance nudge auto-message format '[Auto · YYYY-MM-DD] ...' is posted exactly once per UTC day. Regression suite test_onboarding_pincodes_support.py = 20/20 pass. STALE: old test_api.py (iter1) still asserts removed quantity-based PATCH contract — not re-run; should be deleted by main agent. No backend code modified this iteration.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "tests/test_api.py", "issue": "Stale iter1 tests assert PATCH /api/orders/{id} with {quantity: N} and expect '0..3' error — the contract is now size + lunch_variant. Delete or rewrite to avoid false regression noise."},
+      {"endpoint": "GET /api/wallet/me suggested_topups", "issue": "Returns [1500,2000,3000,5000] (hardcoded) — does not match the onboarding tiles documented as 3000/6000/10000/custom. Cosmetic only — UI may have its own list."},
+      {"endpoint": "JWT_SECRET", "issue": "<32 bytes still triggers PyJWT InsecureKeyLengthWarning (carried)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration3_wallet_pricing.py",
+    "/app/backend/tests/test_onboarding_pincodes_support.py",
+    "/app/test_reports/pytest/pytest_iter3.xml"
+  ],
+  "action_items": [
+    "Delete or rewrite /app/backend/tests/test_api.py — its order-PATCH tests target the old quantity contract and will fail against the new size/lunch_variant API.",
+    "Decide whether to surface 3000/6000/10000/custom in /wallet/me.suggested_topups or document that the onboarding tiles are FE-only.",
+    "(Optional, carried) JWT_SECRET >= 32 bytes."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now ~1300 lines spanning auth + onboarding + pincodes + menu + orders + wallet + admin + delivery + support + nudge logic. Past the 700-line threshold — should be split into routers (auth, orders, wallet, admin, delivery, support, onboarding).",
+    "_maybe_nudge_low_balance is called from _debit_for_order on every delivery. The dedupe check uses a regex on text starting with '[Auto · UTC-date]' — correct, but a dedicated boolean field (e.g. `auto_nudge_date`) on the thread would be cheaper than a regex scan as message volume grows.",
+    "GET /api/wallet/me hardcodes suggested_topups [1500,2000,3000,5000]; the new onboarding contract advertises 3000/6000/10000/custom. Either align both or document the divergence.",
+    "Lunch debit label uses size[:3] ('sin'/'cou'/'fam') — fine for ops but not user-facing-friendly; prior tests confirmed reason format 'lunch cou (no rice) ₹340'."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (12/12 new iter3 + 20/20 regression onboarding/pincodes/support)",
+    "frontend": "skipped per request"
+  },
+  "seed_data_creation": "Two new TEST customers created via onboarding: +919900099999 (couple, L+D, without_rice, ₹3000 welcome top-up) and +919900088888 (single, L, with_rice, ₹0). Khan's wallet was topped up by 'TEST setup' to ensure days_left<3 before the nudge test fired a delivery debit; final balance reflects that delivery. One support auto-nudge message has been posted to Khan's thread today.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Public URL https://fresh-feast-app-1.preview.emergentagent.com (EXPO_PUBLIC_BACKEND_URL). Run: `pytest /app/backend/tests/test_iteration3_wallet_pricing.py /app/backend/tests/test_onboarding_pincodes_support.py -v`. SKIP test_api.py (stale order-PATCH contract). The predictive-nudge test is idempotent — re-runs won't create a second auto message for today because of the per-UTC-day dedupe in _maybe_nudge_low_balance.",
+  "rca_of_issue": "n/a — no bugs found in this iteration's scope."
+}

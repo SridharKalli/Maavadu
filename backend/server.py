@@ -80,9 +80,14 @@ class WalletTxn(BaseModel):
 
 
 class Pricing(BaseModel):
-    breakfast: float = 60.0
-    lunch: float = 120.0
-    dinner: float = 120.0
+    breakfast: dict = Field(default_factory=lambda:
+        {"single": 230.0, "couple": 340.0, "family": 460.0})
+    lunch_without_rice: dict = Field(default_factory=lambda:
+        {"single": 240.0, "couple": 340.0, "family": 460.0})
+    lunch_with_rice: dict = Field(default_factory=lambda:
+        {"single": 268.0, "couple": 385.0, "family": 530.0})
+    dinner: dict = Field(default_factory=lambda:
+        {"single": 230.0, "couple": 340.0, "family": 460.0})
 
 
 class Pincode(BaseModel):
@@ -106,12 +111,19 @@ class WeeklyMenu(BaseModel):
     dinner: Optional[MealItem] = None
 
 
+SizeKey = Literal["single", "couple", "family"]
+LunchVariant = Literal["with_rice", "without_rice"]
+SIZE_TO_QTY = {"single": 1, "couple": 2, "family": 4}
+
+
 class Subscription(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
     plan_type: PlanType
     meals: List[MealKey] = ["breakfast", "lunch", "dinner"]
-    default_quantity: int = 1
+    default_size: SizeKey = "single"
+    default_lunch_variant: LunchVariant = "with_rice"
+    default_quantity: int = 1  # kept for legacy display
     start_date: str
     end_date: str
     active: bool = True
@@ -120,8 +132,10 @@ class Subscription(BaseModel):
 
 class OrderMeal(BaseModel):
     enabled: bool = True
-    quantity: int = 1
+    quantity: int = 1  # derived from size (skip=0, single=1, couple=2, family=4)
+    size: SizeKey = "single"
     item_name: str = ""
+    lunch_variant: Optional[LunchVariant] = None  # only meaningful for lunch
 
 
 class DailyOrder(BaseModel):
@@ -183,15 +197,17 @@ class OnboardReq(BaseModel):
     address: str
     pincode: str
     notes: str = ""
-    plan_type: PlanType
     meals: List[MealKey]
-    default_quantity: int = 1
+    default_size: SizeKey = "single"
+    default_lunch_variant: LunchVariant = "with_rice"
+    initial_topup: float = 0.0
 
 
 class UpdateOrderMealReq(BaseModel):
     meal: MealKey
     enabled: Optional[bool] = None
-    quantity: Optional[int] = None
+    size: Optional[SizeKey] = None
+    lunch_variant: Optional[LunchVariant] = None
 
 
 class AdminCreateUserReq(BaseModel):
@@ -326,16 +342,90 @@ async def _debit_for_order(order: dict, by_user_id: str) -> None:
     parts = []
     for m in ("breakfast", "lunch", "dinner"):
         meal = order.get(m, {})
-        if meal.get("enabled") and meal.get("quantity", 0) > 0:
-            cost = float(pricing[m]) * int(meal["quantity"])
-            total += cost
-            parts.append(f"{m[:3]} ×{meal['quantity']} ₹{int(cost)}")
+        if not meal.get("enabled"):
+            continue
+        size = meal.get("size") or "single"
+        if m == "lunch":
+            variant = meal.get("lunch_variant") or "with_rice"
+            price = float(pricing[f"lunch_{variant}"][size])
+            label = f"lunch {size[:3]} ({'+rice' if variant == 'with_rice' else 'no rice'})"
+        else:
+            price = float(pricing[m][size])
+            label = f"{m[:3]} {size[:3]}"
+        total += price
+        parts.append(f"{label} ₹{int(price)}")
     if total <= 0:
         return
     reason = f"Delivery {order['date']}: " + " · ".join(parts)
     await _record_wallet_txn(order["user_id"], "debit", round(total, 2),
                              reason, ref_order_id=order["id"],
                              by_user_id=by_user_id)
+    # Predictive low-balance nudge: post a friendly support message if the
+    # customer is now within ~3 days of running out.
+    await _maybe_nudge_low_balance(order["user_id"])
+
+
+async def _maybe_nudge_low_balance(user_id: str) -> None:
+    """If the customer's wallet now covers <3 days of meals, post a system
+    message into their support thread (de-duped: at most one nudge per day)."""
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user or user.get("role") != "customer":
+        return
+    bal = float(user.get("wallet_balance", 0.0))
+    sub = await db.subscriptions.find_one(
+        {"user_id": user_id, "active": True}, {"_id": 0})
+    if not sub:
+        return
+    pricing = await _get_pricing()
+    size = sub.get("default_size", "single")
+    variant = sub.get("default_lunch_variant", "with_rice")
+    daily = 0.0
+    for m in sub.get("meals", []):
+        if m == "lunch":
+            daily += float(pricing[f"lunch_{variant}"][size])
+        else:
+            daily += float(pricing[m][size])
+    if daily <= 0:
+        return
+    days_left = bal / daily
+    if days_left >= 3:
+        return
+    # Don't spam: only one auto-nudge per UTC day.
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+    thread = await _get_or_create_thread(user_id)
+    already = await db.support_messages.find_one(
+        {"thread_id": thread["id"],
+         "sender_role": "agent",
+         "text": {"$regex": f"^\\[Auto · {today_iso}\\]"}},
+        {"_id": 0},
+    )
+    if already:
+        return
+    days_int = max(0, int(days_left))
+    if days_int <= 0:
+        body = (f"Hi {user.get('name', '').split(' ')[0] or 'there'} — your wallet "
+                f"won't cover tomorrow's meals (₹{int(bal)} left). Tap top-up "
+                f"and we'll keep the kitchen rolling for you.")
+    else:
+        body = (f"Hi {user.get('name', '').split(' ')[0] or 'there'} — quick "
+                f"heads-up: your wallet covers about {days_int} more "
+                f"day{'s' if days_int != 1 else ''} of meals. A small top-up "
+                f"now keeps deliveries uninterrupted 💛")
+    text = f"[Auto · {today_iso}] {body}"
+    # Use the seeded support agent as the sender if available.
+    agent = await db.users.find_one({"role": "agent"}, {"_id": 0})
+    sender_id = (agent or {}).get("id", "system")
+    msg = SupportMessage(
+        thread_id=thread["id"], sender_id=sender_id, sender_role="agent",
+        kind="text", text=text,
+    )
+    await db.support_messages.insert_one(msg.dict())
+    await db.support_threads.update_one(
+        {"id": thread["id"]},
+        {"$set": {"last_message_at": msg.created_at,
+                  "last_message_preview": text[:60]},
+         "$inc": {"unread_for_customer": 1}},
+    )
 
 
 
@@ -348,12 +438,15 @@ async def _generate_orders_for_subscription(sub: dict) -> int:
     today = _today_ist_date()
     delivery = await db.users.find_one({"role": "delivery"}, {"_id": 0})
     end_date = datetime.strptime(sub["end_date"], "%Y-%m-%d").date()
+    size = sub.get("default_size", "single")
+    qty = SIZE_TO_QTY.get(size, 1)
+    lunch_variant = sub.get("default_lunch_variant", "with_rice")
     inserted = 0
     for offset in range(8):
         d = today + timedelta(days=offset)
         if d > end_date:
             break
-        dow = (d.weekday() + 1) % 7  # Sun=0..Sat=6
+        dow = (d.weekday() + 1) % 7
         menu = await db.weekly_menu.find_one({"day_of_week": dow}, {"_id": 0})
         if not menu or menu.get("is_holiday"):
             continue
@@ -369,8 +462,10 @@ async def _generate_orders_for_subscription(sub: dict) -> int:
             if m in sub["meals"]:
                 order_d[m] = {
                     "enabled": True,
-                    "quantity": sub.get("default_quantity", 1),
+                    "quantity": qty,
+                    "size": size,
                     "item_name": (menu.get(m) or {}).get("name", ""),
+                    "lunch_variant": lunch_variant if m == "lunch" else None,
                 }
         await db.orders.insert_one(order_d)
         inserted += 1
@@ -450,23 +545,23 @@ SEED_USERS = [
     {"phone": "+919999911111", "name": "Sharma Family", "role": "customer",
      "address": "Flat 302, Green Acres, Adyar, Chennai",
      "pincode": "600020", "notes": "Ring twice", "onboarded": True,
-     "wallet_balance": 2840.0},
+     "wallet_balance": 8500.0},
     {"phone": "+919999922222", "name": "Iyer Family", "role": "customer",
      "address": "Villa 12, Palm Meadows, Velachery, Chennai",
      "pincode": "600042", "notes": "Leave at gate", "onboarded": True,
-     "wallet_balance": 1560.0},
+     "wallet_balance": 3200.0},
     {"phone": "+919999933333", "name": "Khan Family", "role": "customer",
      "address": "House 7, R.A. Puram, Chennai",
      "pincode": "600028", "notes": "Hand to security", "onboarded": True,
-     "wallet_balance": 240.0},  # low balance → triggers banner
+     "wallet_balance": 480.0},  # low balance → triggers banner
 ]
 
 
 SEED_SUBS = [
-    # phone, meals, plan, start_offset_days (negative = started in the past)
-    ("+919999911111", ["breakfast", "lunch", "dinner"], "month", 0),
-    ("+919999922222", ["lunch", "dinner"], "month", 0),
-    ("+919999933333", ["lunch"], "week", -5),  # ends in 2 days → renew banner
+    # phone, meals, plan, start_offset_days, default_size, lunch_variant
+    ("+919999911111", ["breakfast", "lunch", "dinner"], "month", 0, "couple", "with_rice"),
+    ("+919999922222", ["lunch", "dinner"], "month", 0, "single", "without_rice"),
+    ("+919999933333", ["lunch"], "week", -5, "single", "with_rice"),  # low balance
 ]
 
 
@@ -489,7 +584,7 @@ async def _seed() -> None:
     today = _today_ist_date()
 
     # Customer subscriptions
-    for phone, meals, plan, start_offset in SEED_SUBS:
+    for phone, meals, plan, start_offset, default_size, lunch_variant in SEED_SUBS:
         c = await db.users.find_one({"phone": phone}, {"_id": 0})
         if not c:
             continue
@@ -499,9 +594,14 @@ async def _seed() -> None:
         duration = {"day": 1, "week": 7, "month": 30}[plan]
         start = today + timedelta(days=start_offset)
         end = start + timedelta(days=duration - 1)
-        sub = Subscription(user_id=c["id"], plan_type=plan,
-                           start_date=start.isoformat(), end_date=end.isoformat(),
-                           meals=meals, default_quantity=1)
+        sub = Subscription(
+            user_id=c["id"], plan_type=plan,
+            start_date=start.isoformat(), end_date=end.isoformat(),
+            meals=meals,
+            default_size=default_size,
+            default_lunch_variant=lunch_variant,
+            default_quantity=SIZE_TO_QTY[default_size],
+        )
         sub_d = sub.dict()
         await db.subscriptions.insert_one(sub_d)
         await _generate_orders_for_subscription(sub_d)
@@ -611,8 +711,8 @@ async def complete_onboarding(req: OnboardReq, user: dict = Depends(get_current_
         raise HTTPException(403, "Only customers can onboard")
     if not req.meals:
         raise HTTPException(400, "Pick at least one meal")
-    if req.default_quantity < 1 or req.default_quantity > 3:
-        raise HTTPException(400, "Members per meal must be 1..3")
+    if req.default_size not in SIZE_TO_QTY:
+        raise HTTPException(400, "Size must be single, couple or family")
     p = await db.pincodes.find_one({"code": req.pincode, "active": True}, {"_id": 0})
     if not p:
         raise HTTPException(400, "Sorry, we don't deliver to that pincode yet")
@@ -631,17 +731,28 @@ async def complete_onboarding(req: OnboardReq, user: dict = Depends(get_current_
         {"user_id": user["id"], "active": True}, {"$set": {"active": False}},
     )
     today = _today_ist_date()
-    duration = {"day": 1, "week": 7, "month": 30}[req.plan_type]
-    end = today + timedelta(days=duration - 1)
+    # Wallet model: subscription is just rolling meal preferences. Keep schema
+    # compatible by giving it a far-future end date.
+    end = today + timedelta(days=365)
     sub = Subscription(
-        user_id=user["id"], plan_type=req.plan_type,
+        user_id=user["id"], plan_type="month",
         start_date=today.isoformat(), end_date=end.isoformat(),
-        meals=req.meals, default_quantity=req.default_quantity,
+        meals=req.meals,
+        default_size=req.default_size,
+        default_lunch_variant=req.default_lunch_variant,
+        default_quantity=SIZE_TO_QTY[req.default_size],
     )
     sub_d = sub.dict()
     await db.subscriptions.insert_one(sub_d)
     await _generate_orders_for_subscription(sub_d)
     sub_d.pop("_id", None)
+
+    # Optional initial wallet top-up.
+    if req.initial_topup and req.initial_topup > 0:
+        await _record_wallet_txn(user["id"], "credit",
+                                 float(req.initial_topup),
+                                 reason="Welcome top-up",
+                                 by_user_id=user["id"])
 
     refreshed = await db.users.find_one({"id": user["id"]}, {"_id": 0})
     return {"user": refreshed, "subscription": sub_d}
@@ -773,10 +884,16 @@ async def modify_order(order_id: str, req: UpdateOrderMealReq,
     meal = order[req.meal]
     if req.enabled is not None:
         meal["enabled"] = req.enabled
-    if req.quantity is not None:
-        if req.quantity < 0 or req.quantity > 3:
-            raise HTTPException(400, "Members per meal must be 0..3")
-        meal["quantity"] = req.quantity
+    if req.size is not None:
+        if req.size not in SIZE_TO_QTY:
+            raise HTTPException(400, "Size must be single, couple or family")
+        meal["size"] = req.size
+        meal["quantity"] = SIZE_TO_QTY[req.size]
+        meal["enabled"] = True
+    if req.lunch_variant is not None:
+        if req.meal != "lunch":
+            raise HTTPException(400, "lunch_variant only applies to lunch")
+        meal["lunch_variant"] = req.lunch_variant
     await db.orders.update_one({"id": order_id}, {"$set": {req.meal: meal}})
     return await db.orders.find_one({"id": order_id}, {"_id": 0})
 
@@ -828,6 +945,20 @@ async def admin_orders(date: Optional[str] = None,
 @api.get("/admin/stats")
 async def admin_stats(_: dict = Depends(require_role("admin"))):
     today = _today_ist_date().isoformat()
+    # Customers with wallet below their threshold (defaults to 500)
+    low_pipe = [
+        {"$match": {"role": "customer", "onboarded": True}},
+        {"$addFields": {
+            "_th": {"$ifNull": ["$wallet_threshold", 500.0]},
+            "_bal": {"$ifNull": ["$wallet_balance", 0.0]},
+        }},
+        {"$match": {"$expr": {"$lt": ["$_bal", "$_th"]}}},
+        {"$count": "n"},
+    ]
+    low_cur = db.users.aggregate(low_pipe)
+    low_doc = await low_cur.to_list(1)
+    wallet_low = (low_doc[0]["n"] if low_doc else 0)
+
     return {
         "total_customers": await db.users.count_documents({"role": "customer",
                                                             "onboarded": True}),
@@ -837,6 +968,7 @@ async def admin_stats(_: dict = Depends(require_role("admin"))):
         "today_orders": await db.orders.count_documents({"date": today}),
         "delivered_today": await db.orders.count_documents({"date": today, "delivered": True}),
         "pincodes": await db.pincodes.count_documents({"active": True}),
+        "wallet_low": wallet_low,
     }
 
 
@@ -1048,12 +1180,17 @@ def _suggest_topups(threshold: float) -> List[int]:
 @api.get("/wallet/me")
 async def wallet_me(user: dict = Depends(get_current_user)):
     pricing = await _get_pricing()
-    # Daily burn = subscribed meals × default qty × pricing
     sub = await db.subscriptions.find_one(
         {"user_id": user["id"], "active": True}, {"_id": 0})
-    qty = (sub or {}).get("default_quantity", 1)
+    size = (sub or {}).get("default_size", "single")
+    lunch_variant = (sub or {}).get("default_lunch_variant", "with_rice")
     meals_subbed = (sub or {}).get("meals", [])
-    daily_burn = sum(float(pricing[m]) * qty for m in meals_subbed)
+    daily_burn = 0.0
+    for m in meals_subbed:
+        if m == "lunch":
+            daily_burn += float(pricing[f"lunch_{lunch_variant}"][size])
+        else:
+            daily_burn += float(pricing[m][size])
     bal = float(user.get("wallet_balance", 0.0))
     days_left = int(bal / daily_burn) if daily_burn > 0 else 999
     recent = await db.wallet_txns.find({"user_id": user["id"]}, {"_id": 0}) \
@@ -1068,6 +1205,9 @@ async def wallet_me(user: dict = Depends(get_current_user)):
         "recent": recent,
         "suggested_topups": _suggest_topups(
             float(user.get("wallet_threshold", 500.0))),
+        "default_size": size,
+        "default_lunch_variant": lunch_variant,
+        "subscribed_meals": meals_subbed,
     }
 
 

@@ -92,16 +92,27 @@ export default function CustomerWallet() {
         {/* Pricing */}
         <Text style={styles.section}>Per-meal pricing</Text>
         <View style={styles.priceCard}>
-          {(["breakfast", "lunch", "dinner"] as const).map((m, i) => (
-            <View key={m} style={[styles.priceRow, i > 0 && styles.priceDiv]}>
-              <Text style={styles.priceMeal}>
-                {m[0].toUpperCase()}{m.slice(1)}
-              </Text>
-              <Text style={styles.priceVal}>₹{wallet.pricing[m]} per portion</Text>
+          <View style={styles.priceHeaderRow}>
+            <Text style={[styles.priceMeal, { flex: 1.2 }]}>Meal</Text>
+            <Text style={styles.priceColHead}>Single</Text>
+            <Text style={styles.priceColHead}>Couple</Text>
+            <Text style={styles.priceColHead}>Family</Text>
+          </View>
+          {([
+            ["breakfast", "Breakfast", wallet.pricing.breakfast],
+            ["lunch_with_rice", "Lunch (with rice)", wallet.pricing.lunch_with_rice],
+            ["lunch_without_rice", "Lunch (no rice)", wallet.pricing.lunch_without_rice],
+            ["dinner", "Dinner", wallet.pricing.dinner],
+          ] as const).map(([key, label, prices], i) => (
+            <View key={key} style={[styles.priceGridRow, i > 0 && styles.priceDiv]}>
+              <Text style={[styles.priceMeal, { flex: 1.2 }]}>{label}</Text>
+              <Text style={styles.priceCell}>₹{prices.single}</Text>
+              <Text style={styles.priceCell}>₹{prices.couple}</Text>
+              <Text style={styles.priceCell}>₹{prices.family}</Text>
             </View>
           ))}
           <Text style={styles.priceFoot}>
-            Couple = 2 portions · Family = 3 portions
+            Single = 1 · Couple = 2 · Family = 4 members
           </Text>
         </View>
 
@@ -236,13 +247,19 @@ const styles = StyleSheet.create({
 
   priceCard: { backgroundColor: colors.surfaceSecondary, borderRadius: radius.lg,
                padding: spacing.lg, ...shadow.card },
-  priceRow: { flexDirection: "row", justifyContent: "space-between",
-              paddingVertical: spacing.sm },
+  priceHeaderRow: { flexDirection: "row", paddingBottom: spacing.sm,
+                    borderBottomWidth: 1, borderBottomColor: colors.divider },
+  priceColHead: { flex: 1, textAlign: "center", fontSize: 11, fontWeight: "700",
+                  color: colors.onSurfaceMuted, letterSpacing: 0.5,
+                  textTransform: "uppercase" },
+  priceGridRow: { flexDirection: "row", alignItems: "center",
+                  paddingVertical: spacing.sm },
   priceDiv: { borderTopWidth: 1, borderTopColor: colors.divider },
-  priceMeal: { fontSize: 14, fontWeight: "700", color: colors.onSurface },
-  priceVal: { fontSize: 14, color: colors.onSurfaceMuted, fontWeight: "600" },
-  priceFoot: { fontSize: 11, color: colors.onSurfaceMuted, marginTop: spacing.sm,
-               fontStyle: "italic" },
+  priceMeal: { fontSize: 13, fontWeight: "700", color: colors.onSurface },
+  priceCell: { flex: 1, textAlign: "center", fontSize: 14,
+               color: colors.onSurface, fontWeight: "600" },
+  priceFoot: { fontSize: 11, color: colors.onSurfaceMuted,
+               marginTop: spacing.sm, fontStyle: "italic" },
 
   chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   topupChip: {
