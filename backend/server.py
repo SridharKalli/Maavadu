@@ -371,10 +371,10 @@ SEED_USERS = [
 
 
 SEED_SUBS = [
-    # phone -> (meals, plan)
-    ("+919999911111", ["breakfast", "lunch", "dinner"], "month"),
-    ("+919999922222", ["lunch", "dinner"], "month"),
-    ("+919999933333", ["lunch"], "week"),
+    # phone, meals, plan, start_offset_days (negative = started in the past)
+    ("+919999911111", ["breakfast", "lunch", "dinner"], "month", 0),
+    ("+919999922222", ["lunch", "dinner"], "month", 0),
+    ("+919999933333", ["lunch"], "week", -5),  # ends in 2 days → renew banner
 ]
 
 
@@ -397,7 +397,7 @@ async def _seed() -> None:
     today = _today_ist_date()
 
     # Customer subscriptions
-    for phone, meals, plan in SEED_SUBS:
+    for phone, meals, plan, start_offset in SEED_SUBS:
         c = await db.users.find_one({"phone": phone}, {"_id": 0})
         if not c:
             continue
@@ -405,9 +405,10 @@ async def _seed() -> None:
         if existing:
             continue
         duration = {"day": 1, "week": 7, "month": 30}[plan]
-        end = today + timedelta(days=duration - 1)
+        start = today + timedelta(days=start_offset)
+        end = start + timedelta(days=duration - 1)
         sub = Subscription(user_id=c["id"], plan_type=plan,
-                           start_date=today.isoformat(), end_date=end.isoformat(),
+                           start_date=start.isoformat(), end_date=end.isoformat(),
                            meals=meals, default_quantity=1)
         sub_d = sub.dict()
         await db.subscriptions.insert_one(sub_d)

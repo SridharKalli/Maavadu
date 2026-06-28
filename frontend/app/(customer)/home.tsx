@@ -8,23 +8,48 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { useRouter } from "expo-router";
 
-import { ordersApi, subsApi, DailyOrder, MealKey, Subscription } from "@/src/lib/api";
+import {
+  ordersApi, subsApi, DailyOrder, MealKey, Subscription, OrderMeal,
+} from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
 import { colors, spacing, radius, shadow, DAY_NAMES_FULL } from "@/src/lib/theme";
 
 const HERO = "https://images.pexels.com/photos/35008222/pexels-photo-35008222.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940";
 const ALL_MEALS: MealKey[] = ["breakfast", "lunch", "dinner"];
 const MEAL_ICONS = { breakfast: "sunrise", lunch: "sun", dinner: "moon" } as const;
+const PLAN_LABEL = { day: "Day pass", week: "Weekly", month: "Monthly" } as const;
+
+type SizeKey = "skip" | "single" | "couple" | "family";
+const SIZE_OPTIONS: { key: SizeKey; label: string; qty: number; enabled: boolean }[] = [
+  { key: "skip", label: "Skip", qty: 0, enabled: false },
+  { key: "single", label: "Single", qty: 1, enabled: true },
+  { key: "couple", label: "Couple", qty: 2, enabled: true },
+  { key: "family", label: "Family", qty: 3, enabled: true },
+];
+
+function mealToSize(m: OrderMeal): SizeKey {
+  if (!m.enabled || m.quantity === 0) return "skip";
+  if (m.quantity === 1) return "single";
+  if (m.quantity === 2) return "couple";
+  return "family";
+}
 
 function formatNice(dateStr: string) {
   const d = new Date(dateStr + "T00:00:00");
-  const day = DAY_NAMES_FULL[d.getDay()];
-  return `${day}, ${d.getDate()} ${d.toLocaleString("en-US", { month: "short" })}`;
+  return `${DAY_NAMES_FULL[d.getDay()]}, ${d.getDate()} ${d.toLocaleString("en-US",
+    { month: "short" })}`;
+}
+
+function daysUntil(dateStr: string): number {
+  const target = new Date(dateStr + "T23:59:59");
+  return Math.ceil((target.getTime() - Date.now()) / (24 * 3600 * 1000));
 }
 
 export default function CustomerHome() {
   const { user } = useAuth();
+  const router = useRouter();
   const [today, setToday] = useState<DailyOrder | null>(null);
   const [tomorrow, setTomorrow] = useState<DailyOrder | null>(null);
   const [sub, setSub] = useState<Subscription | null>(null);
@@ -51,22 +76,24 @@ export default function CustomerHome() {
 
   const MEALS = sub ? ALL_MEALS.filter((m) => sub.meals.includes(m)) : ALL_MEALS;
 
-  async function modify(orderId: string, meal: "breakfast" | "lunch" | "dinner",
-                        patch: { enabled?: boolean; quantity?: number }) {
+  async function setSize(orderId: string, meal: MealKey, size: SizeKey) {
+    const opt = SIZE_OPTIONS.find((o) => o.key === size)!;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      await ordersApi.modify(orderId, meal, patch);
+      await ordersApi.modify(orderId, meal,
+        { enabled: opt.enabled, quantity: opt.qty });
       load();
-    } catch (e: any) {
+    } catch {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
   }
 
   if (loading) {
-    return (
-      <View style={styles.center}><ActivityIndicator color={colors.brand} /></View>
-    );
+    return <View style={styles.center}><ActivityIndicator color={colors.brand} /></View>;
   }
+
+  const daysLeft = sub ? daysUntil(sub.end_date) : 0;
+  const endsSoon = daysLeft <= 5;
 
   return (
     <View style={styles.screen}>
@@ -75,6 +102,7 @@ export default function CustomerHome() {
         refreshControl={<RefreshControl refreshing={refreshing}
           onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.brand} />}
       >
+        {/* HERO */}
         <View style={styles.hero}>
           <Image source={HERO} style={StyleSheet.absoluteFill} contentFit="cover" />
           <LinearGradient colors={["rgba(44,42,40,0.2)", "rgba(44,42,40,0.85)"]}
@@ -83,99 +111,75 @@ export default function CustomerHome() {
             <Text style={styles.heroGreet} testID="home-greeting">
               Namaste, {user?.name?.split(" ")[0] || "friend"} 🙏
             </Text>
-            <Text style={styles.heroTitle}>Today's Menu</Text>
-            <Text style={styles.heroDate}>{formatNice(new Date().toISOString().split("T")[0])}</Text>
+            <Text style={styles.heroTitle}>Home Tiffin</Text>
+            <Text style={styles.heroDate}>
+              {formatNice(new Date().toISOString().split("T")[0])}
+            </Text>
           </SafeAreaView>
         </View>
 
         <View style={styles.body}>
-          {/* Today's meals */}
-          <Text style={styles.section}>What's cooking today</Text>
-          {today ? (
-            <View style={styles.card}>
-              {MEALS.map((m, i) => (
-                <View key={m} style={[styles.mealRow, i > 0 && styles.divider]}>
-                  <Feather name={MEAL_ICONS[m]} size={20} color={colors.brand} />
-                  <View style={{ flex: 1, marginLeft: spacing.md }}>
-                    <Text style={styles.mealLabel}>{m.toUpperCase()}</Text>
-                    <Text style={styles.mealName} testID={`today-${m}-name`}>
-                      {today[m].item_name || "—"}
-                    </Text>
-                  </View>
-                  <Text style={styles.qty}>
-                    {today[m].enabled ? `×${today[m].quantity}` : "Skipped"}
+          {/* SUBSCRIPTION BANNER */}
+          {sub && (
+            <View style={[styles.subCard, endsSoon && styles.subCardWarn]}
+              testID="subscription-banner">
+              <View style={styles.subTop}>
+                <View style={styles.subBadge}>
+                  <Text style={styles.subBadgeText}>
+                    {PLAN_LABEL[sub.plan_type]}
                   </Text>
                 </View>
-              ))}
-            </View>
-          ) : (
-            <View style={[styles.card, styles.empty]}>
-              <Feather name="coffee" size={28} color={colors.onSurfaceMuted} />
-              <Text style={styles.emptyText}>No meals today — enjoy your holiday!</Text>
+                <Text style={styles.subMeals}>
+                  {sub.meals.map((m) => m[0].toUpperCase() + m.slice(1)).join(" · ")}
+                </Text>
+              </View>
+              <Text style={[styles.subEnd, endsSoon && { color: colors.error }]}
+                testID="subscription-end-date">
+                {daysLeft > 0
+                  ? <>Active till <Text style={{ fontWeight: "700" }}>
+                      {formatNice(sub.end_date)}</Text>{" "}
+                    ({daysLeft} day{daysLeft !== 1 ? "s" : ""} left)</>
+                  : <Text style={{ fontWeight: "700", color: colors.error }}>
+                      Subscription expired
+                    </Text>}
+              </Text>
+              {endsSoon && (
+                <Pressable
+                  testID="renew-cta"
+                  style={styles.renewBtn}
+                  onPress={() => router.push("/(customer)/support")}
+                >
+                  <Feather name="message-circle" size={16} color={colors.onBrand} />
+                  <Text style={styles.renewText}>Chat with us to renew</Text>
+                </Pressable>
+              )}
             </View>
           )}
 
-          {/* Cutoff banner */}
-          <View style={styles.cutoffBanner} testID="cutoff-banner">
-            <Feather name="clock" size={18} color={colors.warning} />
-            <Text style={styles.cutoffText}>
-              <Text style={{ fontWeight: "700" }}>8 PM cutoff</Text> to change tomorrow's order ·
-              up to 3 members per meal
-            </Text>
-          </View>
-
-          {/* Tomorrow's meals — editable */}
-          <Text style={styles.section}>Tomorrow's plan</Text>
-          {tomorrow ? (
-            <View style={styles.card}>
-              <Text style={styles.tomorrowDate}>{formatNice(tomorrow.date)}</Text>
-              {tomorrow.cutoff_passed && (
-                <View style={styles.lockedRow}>
-                  <Feather name="lock" size={14} color={colors.error} />
-                  <Text style={styles.lockedText}>Changes locked — past 8 PM cutoff</Text>
-                </View>
-              )}
+          {/* TODAY */}
+          <Text style={styles.section}>Today's menu</Text>
+          {today ? (
+            <View style={styles.card} testID="today-card">
               {MEALS.map((m, i) => {
-                const meal = tomorrow[m];
-                const locked = tomorrow.cutoff_passed;
+                const meal = today[m];
+                const sz = mealToSize(meal);
                 return (
-                  <View key={m} style={[styles.mealRow, i > 0 && styles.divider]}>
+                  <View key={m} style={[styles.todayRow, i > 0 && styles.divider]}>
                     <Feather name={MEAL_ICONS[m]} size={20}
                       color={meal.enabled ? colors.brand : colors.onSurfaceMuted} />
                     <View style={{ flex: 1, marginLeft: spacing.md }}>
                       <Text style={styles.mealLabel}>{m.toUpperCase()}</Text>
                       <Text style={[styles.mealName,
-                        !meal.enabled && { textDecorationLine: "line-through",
-                                            color: colors.onSurfaceMuted }]}
-                        testID={`tomorrow-${m}-name`}>
+                        !meal.enabled && styles.skipped]}
+                        testID={`today-${m}-name`}>
                         {meal.item_name || "—"}
                       </Text>
                     </View>
-                    <View style={styles.actions}>
-                      <Pressable
-                        testID={`tomorrow-${m}-minus`}
-                        disabled={locked || meal.quantity <= 0}
-                        style={[styles.qtyBtn, (locked || meal.quantity <= 0) && styles.qtyBtnDisabled]}
-                        onPress={() => modify(tomorrow.id, m, {
-                          quantity: Math.max(0, meal.quantity - 1),
-                          enabled: meal.quantity - 1 > 0,
-                        })}
-                      >
-                        <Feather name="minus" size={16} color={colors.onSurface} />
-                      </Pressable>
-                      <Text style={styles.qtyVal} testID={`tomorrow-${m}-qty`}>
-                        {meal.enabled ? meal.quantity : 0}
+                    <View style={[styles.statusChip, styles[`chip_${sz}`]]}>
+                      <Text style={[styles.statusChipText,
+                        sz === "skip" && { color: colors.onSurfaceMuted }]}>
+                        {SIZE_OPTIONS.find((o) => o.key === sz)?.label}
                       </Text>
-                      <Pressable
-                        testID={`tomorrow-${m}-plus`}
-                        disabled={locked || meal.quantity >= 3}
-                        style={[styles.qtyBtn, (locked || meal.quantity >= 3) && styles.qtyBtnDisabled]}
-                        onPress={() => modify(tomorrow.id, m, {
-                          quantity: Math.min(3, meal.quantity + 1), enabled: true,
-                        })}
-                      >
-                        <Feather name="plus" size={16} color={colors.onSurface} />
-                      </Pressable>
                     </View>
                   </View>
                 );
@@ -184,10 +188,97 @@ export default function CustomerHome() {
           ) : (
             <View style={[styles.card, styles.empty]}>
               <Feather name="coffee" size={28} color={colors.onSurfaceMuted} />
-              <Text style={styles.emptyText}>Tomorrow is a holiday (Sunday).</Text>
+              <Text style={styles.emptyText}>No meals today — enjoy your holiday!</Text>
             </View>
           )}
-          <View style={{ height: spacing.xxl }} />
+
+          {/* CUTOFF BANNER */}
+          <View style={styles.cutoffBanner} testID="cutoff-banner">
+            <Feather name="clock" size={18} color={colors.warning} />
+            <Text style={styles.cutoffText}>
+              <Text style={{ fontWeight: "700" }}>8 PM cutoff</Text>{" "}
+              to change tomorrow's order
+            </Text>
+          </View>
+
+          {/* TOMORROW */}
+          <Text style={styles.section}>Tomorrow's plan</Text>
+          {tomorrow ? (
+            <View testID="tomorrow-card">
+              <Text style={styles.tomorrowDate}>{formatNice(tomorrow.date)}</Text>
+              {tomorrow.cutoff_passed && (
+                <View style={styles.lockedRow}>
+                  <Feather name="lock" size={14} color={colors.error} />
+                  <Text style={styles.lockedText}>
+                    Changes locked — past 8 PM cutoff
+                  </Text>
+                </View>
+              )}
+              {MEALS.map((m) => {
+                const meal = tomorrow[m];
+                const sz = mealToSize(meal);
+                const locked = !!tomorrow.cutoff_passed;
+                return (
+                  <View key={m} style={styles.mealCard} testID={`tomorrow-${m}-card`}>
+                    <View style={styles.mealCardHead}>
+                      <Feather name={MEAL_ICONS[m]} size={20}
+                        color={meal.enabled ? colors.brand : colors.onSurfaceMuted} />
+                      <View style={{ flex: 1, marginLeft: spacing.md }}>
+                        <Text style={styles.mealLabel}>{m.toUpperCase()}</Text>
+                        <Text style={[styles.mealName,
+                          !meal.enabled && styles.skipped]}
+                          testID={`tomorrow-${m}-name`}>
+                          {meal.item_name || "—"}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Segmented size selector */}
+                    <View style={styles.segmented}>
+                      {SIZE_OPTIONS.map((opt) => {
+                        const active = opt.key === sz;
+                        return (
+                          <Pressable
+                            key={opt.key}
+                            testID={`tomorrow-${m}-${opt.key}`}
+                            disabled={locked}
+                            onPress={() => !active && setSize(tomorrow.id, m, opt.key)}
+                            style={[
+                              styles.segBtn,
+                              active && (opt.key === "skip"
+                                ? styles.segBtnSkipActive : styles.segBtnActive),
+                              locked && { opacity: 0.4 },
+                            ]}
+                          >
+                            <Text style={[styles.segLabel,
+                              active && (opt.key === "skip"
+                                ? { color: colors.error }
+                                : { color: colors.onBrand })]}>
+                              {opt.label}
+                            </Text>
+                            {opt.qty > 0 && (
+                              <Text style={[styles.segQty,
+                                active && { color: colors.onBrand }]}>
+                                ×{opt.qty}
+                              </Text>
+                            )}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          ) : (
+            <View style={[styles.card, styles.empty]}>
+              <Feather name="coffee" size={28} color={colors.onSurfaceMuted} />
+              <Text style={styles.emptyText}>
+                Tomorrow is a holiday (Sunday).
+              </Text>
+            </View>
+          )}
+          <View style={{ height: spacing.xxxl }} />
         </View>
       </ScrollView>
     </View>
@@ -198,7 +289,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
   center: { flex: 1, alignItems: "center", justifyContent: "center",
             backgroundColor: colors.surface },
-  hero: { height: 240, backgroundColor: colors.surfaceInverse },
+  hero: { height: 220, backgroundColor: colors.surfaceInverse },
   heroInner: { flex: 1, padding: spacing.xl, justifyContent: "flex-end" },
   heroGreet: { color: colors.brandTertiary, fontSize: 14, marginBottom: spacing.xs },
   heroTitle: { color: colors.onSurfaceInverse, fontSize: 32, fontWeight: "700",
@@ -206,35 +297,62 @@ const styles = StyleSheet.create({
   heroDate: { color: colors.brandTertiary, fontSize: 14, marginTop: spacing.xs },
 
   body: { padding: spacing.lg, marginTop: -spacing.lg },
+
+  // Subscription banner
+  subCard: {
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.lg, padding: spacing.lg, ...shadow.card,
+    borderLeftWidth: 4, borderLeftColor: colors.brand,
+  },
+  subCardWarn: { borderLeftColor: colors.error },
+  subTop: { flexDirection: "row", alignItems: "center", gap: spacing.sm,
+            marginBottom: spacing.xs },
+  subBadge: {
+    backgroundColor: colors.brand,
+    paddingHorizontal: spacing.sm, paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  subBadgeText: { color: colors.onBrand, fontWeight: "700", fontSize: 11,
+                  letterSpacing: 0.5 },
+  subMeals: { color: colors.onSurfaceMuted, fontSize: 12, fontWeight: "600",
+              flex: 1 },
+  subEnd: { color: colors.onSurface, fontSize: 14, lineHeight: 20 },
+  renewBtn: {
+    marginTop: spacing.md,
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: spacing.xs, backgroundColor: colors.brand,
+    paddingVertical: 10, borderRadius: radius.md,
+  },
+  renewText: { color: colors.onBrand, fontWeight: "700", fontSize: 13,
+               letterSpacing: 0.3 },
+
   section: { fontSize: 14, fontWeight: "700", color: colors.onSurfaceMuted,
-             letterSpacing: 0.5, marginBottom: spacing.sm, marginTop: spacing.md,
+             letterSpacing: 0.5, marginBottom: spacing.sm, marginTop: spacing.xl,
              textTransform: "uppercase" },
 
   card: {
     backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    ...shadow.card,
+    borderRadius: radius.lg, padding: spacing.lg, ...shadow.card,
   },
   empty: { alignItems: "center", gap: spacing.sm, paddingVertical: spacing.xl },
   emptyText: { color: colors.onSurfaceMuted, fontSize: 14 },
 
-  mealRow: { flexDirection: "row", alignItems: "center", paddingVertical: spacing.md },
+  todayRow: { flexDirection: "row", alignItems: "center", paddingVertical: spacing.md },
   divider: { borderTopWidth: 1, borderTopColor: colors.divider },
   mealLabel: { fontSize: 11, fontWeight: "700", color: colors.onSurfaceMuted,
                letterSpacing: 1, marginBottom: 2 },
   mealName: { fontSize: 15, color: colors.onSurface, fontWeight: "600" },
-  qty: { fontSize: 14, fontWeight: "700", color: colors.brand },
+  skipped: { textDecorationLine: "line-through", color: colors.onSurfaceMuted },
 
-  actions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  qtyBtn: {
-    width: 32, height: 32, borderRadius: radius.pill,
-    backgroundColor: colors.surfaceTertiary,
-    alignItems: "center", justifyContent: "center",
+  statusChip: {
+    paddingHorizontal: spacing.sm, paddingVertical: 4,
+    borderRadius: radius.pill,
   },
-  qtyBtnDisabled: { opacity: 0.4 },
-  qtyVal: { minWidth: 24, textAlign: "center", fontSize: 16,
-            fontWeight: "700", color: colors.onSurface },
+  statusChipText: { color: colors.onBrand, fontWeight: "700", fontSize: 11 },
+  chip_skip: { backgroundColor: colors.surfaceTertiary },
+  chip_single: { backgroundColor: colors.brandSecondary },
+  chip_couple: { backgroundColor: colors.brand },
+  chip_family: { backgroundColor: colors.surfaceInverse },
 
   cutoffBanner: {
     flexDirection: "row", alignItems: "center", gap: spacing.sm,
@@ -246,11 +364,35 @@ const styles = StyleSheet.create({
   cutoffText: { color: colors.onSurface, fontSize: 14, flex: 1 },
 
   tomorrowDate: { fontSize: 14, fontWeight: "700", color: colors.brand,
-                  marginBottom: spacing.sm },
+                  marginBottom: spacing.md },
   lockedRow: {
     flexDirection: "row", gap: spacing.xs, alignItems: "center",
     backgroundColor: "#FBE9E9", padding: spacing.sm, borderRadius: radius.sm,
     marginBottom: spacing.sm,
   },
   lockedText: { color: colors.error, fontSize: 12, fontWeight: "600" },
+
+  mealCard: {
+    backgroundColor: colors.surfaceSecondary, borderRadius: radius.lg,
+    padding: spacing.lg, marginBottom: spacing.md, ...shadow.card,
+  },
+  mealCardHead: { flexDirection: "row", alignItems: "center",
+                  marginBottom: spacing.md },
+
+  segmented: {
+    flexDirection: "row", gap: 6,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md, padding: 4,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  segBtn: {
+    flex: 1, paddingVertical: 8, alignItems: "center",
+    borderRadius: radius.sm,
+  },
+  segBtnActive: { backgroundColor: colors.brand },
+  segBtnSkipActive: { backgroundColor: "#FBE9E9" },
+  segLabel: { fontSize: 12, fontWeight: "700", color: colors.onSurface,
+              letterSpacing: 0.2 },
+  segQty: { fontSize: 10, color: colors.onSurfaceMuted, marginTop: 1,
+            fontWeight: "700" },
 });
