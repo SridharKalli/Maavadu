@@ -1174,7 +1174,7 @@ async def unread_count(user: dict = Depends(get_current_user)):
 # Wallet
 # ---------------------------------------------------------------------------
 def _suggest_topups(threshold: float) -> List[int]:
-    return [1500, 2000, 3000, 5000]
+    return [3000, 6000, 10000]
 
 
 @api.get("/wallet/me")
