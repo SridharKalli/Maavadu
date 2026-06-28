@@ -69,99 +69,102 @@ export default function Login() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ScrollView
-        contentContainerStyle={{ flexGrow: 1 }}
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.hero}>
-          <Image source={HERO} style={StyleSheet.absoluteFill} contentFit="cover" />
-          <LinearGradient
-            colors={["rgba(44,42,40,0.1)", "rgba(44,42,40,0.85)"]}
-            style={StyleSheet.absoluteFill}
-          />
-          <SafeAreaView edges={["top"]} style={styles.heroInner}>
-            <Text style={styles.heroSmall}>Welcome to</Text>
-            <Text style={styles.heroTitle} testID="login-title">Home Tiffin</Text>
-            <Text style={styles.heroSub}>Fresh, home-cooked meals delivered daily.</Text>
-          </SafeAreaView>
-        </View>
+        <View style={styles.frame}>
+          <View style={styles.hero}>
+            <Image source={HERO} style={StyleSheet.absoluteFill} contentFit="cover" />
+            <LinearGradient
+              colors={["rgba(44,42,40,0.1)", "rgba(44,42,40,0.85)"]}
+              style={StyleSheet.absoluteFill}
+            />
+            <SafeAreaView edges={["top"]} style={styles.heroInner}>
+              <Text style={styles.heroSmall}>Welcome to</Text>
+              <Text style={styles.heroTitle} testID="login-title">Home Tiffin</Text>
+              <Text style={styles.heroSub}>Fresh, home-cooked meals delivered daily.</Text>
+            </SafeAreaView>
+          </View>
 
-        <View style={styles.card}>
-          {step === "phone" ? (
-            <>
-              <Text style={styles.h2}>Sign in with phone</Text>
-              <Text style={styles.muted}>
-                We'll send a 6-digit code to verify your number.
-              </Text>
-              <View style={styles.phoneRow}>
-                <View style={styles.cc}><Text style={styles.ccText}>+91</Text></View>
+          <View style={styles.card}>
+            {step === "phone" ? (
+              <>
+                <Text style={styles.h2}>Sign in with phone</Text>
+                <Text style={styles.muted}>
+                  We&apos;ll send a 6-digit code to verify your number.
+                </Text>
+                <View style={styles.phoneRow}>
+                  <View style={styles.cc}><Text style={styles.ccText}>+91</Text></View>
+                  <TextInput
+                    testID="phone-input"
+                    style={styles.phoneInput}
+                    placeholder="98765 43210"
+                    placeholderTextColor={colors.onSurfaceMuted}
+                    keyboardType="phone-pad"
+                    value={phone}
+                    onChangeText={setPhone}
+                    maxLength={15}
+                    autoFocus
+                  />
+                </View>
+                {error && <Text style={styles.error} testID="login-error">{error}</Text>}
+                <Pressable
+                  testID="send-otp-button"
+                  style={[styles.cta, busy && { opacity: 0.6 }]}
+                  onPress={sendOtp}
+                  disabled={busy}
+                >
+                  {busy ? <ActivityIndicator color={colors.onBrand} /> :
+                    <Text style={styles.ctaText}>Send OTP</Text>}
+                </Pressable>
+                <Text style={styles.hint}>
+                  Try seeded accounts: 9000000001 (Admin) · 9000000002 (Delivery) · 9999911111 (Customer)
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.h2}>Enter the code</Text>
+                <Text style={styles.muted}>
+                  Sent to <Text style={{ fontWeight: "700" }}>{normalizedPhone}</Text>
+                </Text>
+                {devOtp && (
+                  <View style={styles.devOtp} testID="dev-otp-banner">
+                    <Text style={styles.devOtpLabel}>DEV OTP</Text>
+                    <Text style={styles.devOtpCode} testID="dev-otp-code">{devOtp}</Text>
+                  </View>
+                )}
                 <TextInput
-                  testID="phone-input"
-                  style={styles.phoneInput}
-                  placeholder="98765 43210"
+                  testID="otp-input"
+                  style={styles.otpInput}
+                  placeholder="••••••"
                   placeholderTextColor={colors.onSurfaceMuted}
-                  keyboardType="phone-pad"
-                  value={phone}
-                  onChangeText={setPhone}
-                  maxLength={15}
+                  keyboardType="number-pad"
+                  value={code}
+                  onChangeText={setCode}
+                  maxLength={6}
                   autoFocus
                 />
-              </View>
-              {error && <Text style={styles.error} testID="login-error">{error}</Text>}
-              <Pressable
-                testID="send-otp-button"
-                style={[styles.cta, busy && { opacity: 0.6 }]}
-                onPress={sendOtp}
-                disabled={busy}
-              >
-                {busy ? <ActivityIndicator color={colors.onBrand} /> :
-                  <Text style={styles.ctaText}>Send OTP</Text>}
-              </Pressable>
-              <Text style={styles.hint}>
-                Try seeded accounts: 9000000001 (Admin) · 9000000002 (Delivery) · 9999911111 (Customer)
-              </Text>
-            </>
-          ) : (
-            <>
-              <Text style={styles.h2}>Enter the code</Text>
-              <Text style={styles.muted}>
-                Sent to <Text style={{ fontWeight: "700" }}>{normalizedPhone}</Text>
-              </Text>
-              {devOtp && (
-                <View style={styles.devOtp} testID="dev-otp-banner">
-                  <Text style={styles.devOtpLabel}>DEV OTP</Text>
-                  <Text style={styles.devOtpCode} testID="dev-otp-code">{devOtp}</Text>
-                </View>
-              )}
-              <TextInput
-                testID="otp-input"
-                style={styles.otpInput}
-                placeholder="••••••"
-                placeholderTextColor={colors.onSurfaceMuted}
-                keyboardType="number-pad"
-                value={code}
-                onChangeText={setCode}
-                maxLength={6}
-                autoFocus
-              />
-              {error && <Text style={styles.error} testID="otp-error">{error}</Text>}
-              <Pressable
-                testID="verify-otp-button"
-                style={[styles.cta, busy && { opacity: 0.6 }]}
-                onPress={verifyOtp}
-                disabled={busy}
-              >
-                {busy ? <ActivityIndicator color={colors.onBrand} /> :
-                  <Text style={styles.ctaText}>Verify & Sign in</Text>}
-              </Pressable>
-              <Pressable
-                testID="change-phone-button"
-                style={styles.ghost}
-                onPress={() => { setStep("phone"); setCode(""); setDevOtp(null); }}
-              >
-                <Text style={styles.ghostText}>Change number</Text>
-              </Pressable>
-            </>
-          )}
+                {error && <Text style={styles.error} testID="otp-error">{error}</Text>}
+                <Pressable
+                  testID="verify-otp-button"
+                  style={[styles.cta, busy && { opacity: 0.6 }]}
+                  onPress={verifyOtp}
+                  disabled={busy}
+                >
+                  {busy ? <ActivityIndicator color={colors.onBrand} /> :
+                    <Text style={styles.ctaText}>Verify & Sign in</Text>}
+                </Pressable>
+                <Pressable
+                  testID="change-phone-button"
+                  style={styles.ghost}
+                  onPress={() => { setStep("phone"); setCode(""); setDevOtp(null); }}
+                >
+                  <Text style={styles.ghostText}>Change number</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -169,7 +172,12 @@ export default function Login() {
 }
 
 const styles = StyleSheet.create({
-  hero: { height: 320, backgroundColor: colors.surfaceInverse },
+  scroll: { flexGrow: 1, alignItems: "center", justifyContent: "flex-start",
+            backgroundColor: colors.surfaceInverse },
+  frame: { width: "100%", maxWidth: 480, alignSelf: "center",
+           backgroundColor: colors.surface, flexGrow: 1 },
+  hero: { height: 320, backgroundColor: colors.surfaceInverse,
+          overflow: "hidden" },
   heroInner: { flex: 1, padding: spacing.xl, justifyContent: "flex-end" },
   heroSmall: { color: colors.brandTertiary, fontSize: 14, marginBottom: spacing.xs },
   heroTitle: { color: colors.onSurfaceInverse, fontSize: 40, fontWeight: "700",

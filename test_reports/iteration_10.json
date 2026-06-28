@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 10 - Frontend regression PASS. Login layout fix verified at both desktop (1024x800) and phone (390x844) viewports: the new <View style={styles.frame}> (width:100%, maxWidth:480, alignSelf:'center') is correctly centering hero, card, phone-row, Send OTP button and seeded-accounts hint within a 480px column on wide viewports, and is full-bleed on phone viewports. Measured at vw=1024 the login-title and send-otp-button center at x=512 (exact viewport center, offset=0); the phone TextInput alone centers at x=541 only because the flex row contains the +91 country-code chip to its left (the whole phoneRow remains within the 480px frame). bodyScrollW=vw at both 1024 and 390, so NO horizontal scroll regression. Branded dark gutters render outside the frame at desktop (ScrollView contentContainerStyle bg = surfaceInverse), matching the spec. OTP step works end-to-end: phone 9999911111 -> Send OTP -> dev-otp-banner with code -> verify-otp-button -> /(customer)/home with home-greeting visible; OTP banner stays centered at desktop too (banner.l=312, c=512, w=400 within vw=1024).\n\nUPSELL-CARD REGRESSION (the bug from iter9) - FIXED & VERIFIED: home.tsx now keeps a subMeals state populated from subsApi.me().meals (lines 64, 72-74, 83, 102-104) and the `missing` array filters ALL_MEALS against subMeals (NOT against tomorrow[m].item_name). Repro: PATCHed /api/subscriptions/me with {meals:['dinner'], default_size:'couple', default_lunch_variant:'with_rice'}, reloaded /(customer)/home, and confirmed testID='upsell-card', testID='upsell-breakfast' and testID='upsell-lunch' ALL render. Tapping testID='upsell-add-breakfast' removed breakfast from the upsell list (only lunch left after tap), wallet 'days left' projection updated from ~23 days to ~11 days correctly. Sharma was restored to meals=['breakfast','lunch','dinner'] after the test.\n\nRegression smoke at phone viewport 390x844: /(customer)/home, /(customer)/wallet and /(admin)/dashboard all render with scrollW==vw (no horizontal overflow); headers, balance card, tab bar all visible.\n\nBackend regression skipped per request (testing_type='frontend only'); no backend was changed in this iteration.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/screens/login_desktop_1024.png",
+    "/app/test_reports/screens/login_phone_390.png",
+    "/app/test_reports/screens/otp_phone_390.png",
+    "/app/test_reports/screens/otp_desktop_1024.png",
+    "/app/test_reports/screens/customer_home.png",
+    "/app/test_reports/screens/home_upsell.png",
+    "/app/test_reports/screens/home_after_add_breakfast.png",
+    "/app/test_reports/screens/regress_customer_home.png",
+    "/app/test_reports/screens/regress_customer_wallet.png",
+    "/app/test_reports/screens/regress_admin_dashboard.png"
+  ],
+  "action_items": [
+    "(Optional carry-over from iter9) Tighten cascade in routers/subscriptions.py:49-52 so future-dated orders are reshaped even if delivered=True is stale.",
+    "(Optional carry-over from iter8) Replace shadow* style props with boxShadow and props.pointerEvents -> style.pointerEvents to silence RN-Web warnings."
+  ],
+  "critical_code_review_comments": [
+    "login.tsx: styles.frame (width:100%, maxWidth:480, alignSelf:'center') + styles.scroll (alignItems:'center', bg=surfaceInverse) is the correct fix for the wide-preview centering issue. Clean, no other side effects. KeyboardAvoidingView still wraps the whole tree so iOS keyboard handling is preserved.",
+    "home.tsx: subMeals state is sourced from subsApi.me().meals (line 83) and missing[] is computed as ALL_MEALS minus subMeals (lines 102-104). This is the correct source of truth -- the backend cascade preserves order.item_name when disabling a meal, so the previous tomorrow[m].item_name OR tomorrow[m].enabled filter was always falsely 'subscribed'.",
+    "Subscription PATCH still returns 200 with the correct updated meals payload; cascade in routers/subscriptions.py is producing the expected enabled=false for tomorrow's disabled meals (verified via the upsell card appearing)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested this iteration (per request)", "frontend": "100% (login centering desktop+phone, OTP flow, upsell-card render+tap, customer home+wallet & admin dashboard regression smoke all PASS)"},
+  "seed_data_creation": "Test PATCHed Sharma to meals=['dinner'] then tapped upsell-add-breakfast (which set meals=['dinner','breakfast']), then explicitly restored to ['breakfast','lunch','dinner']. Verified via final PATCH response. No stale residue.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Login screen now wraps content in <View style={styles.frame}> (maxWidth:480, alignSelf:'center') and the outer ScrollView uses surfaceInverse bg so the gutters look intentional. To test wide-viewport centering use viewport >= 600px and measure title/button centerX vs vw/2 - they should be equal. For upsell tests, ALWAYS PATCH /api/subscriptions/me with the desired meals[] (do NOT rely on order rows) -- the backend cascade preserves item_name, so the front-end now reads sub.meals from /api/subscriptions/me. Auth helper: POST /api/auth/verify-otp expects body keys 'phone' + 'code' (NOT 'otp'). Sharma id = f7dae686-f4cc-483a-a61f-eeffa25af10d; phone +919999911111.",
+  "rca_of_issue": "No new bug found. The iter9 upsell bug RCA (home.tsx ALL_MEALS.filter using tomorrow[m].item_name || tomorrow[m].enabled) was correctly addressed by replacing the inference with a dedicated subMeals state seeded from subsApi.me().meals."
+}

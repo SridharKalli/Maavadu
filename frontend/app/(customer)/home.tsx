@@ -61,6 +61,7 @@ export default function CustomerHome() {
   const [today, setToday] = useState<DailyOrder | null>(null);
   const [tomorrow, setTomorrow] = useState<DailyOrder | null>(null);
   const [wallet, setWallet] = useState<WalletInfo | null>(null);
+  const [subMeals, setSubMeals] = useState<MealKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [pending, setPending] = useState<PendingChange | null>(null);
@@ -68,8 +69,9 @@ export default function CustomerHome() {
 
   const load = useCallback(async () => {
     try {
-      const [upcoming, w] = await Promise.all([
+      const [upcoming, w, sub] = await Promise.all([
         ordersApi.upcoming(), walletApi.me(),
+        subsApi.me().catch(() => null),
       ]);
       const todayStr = new Date().toISOString().split("T")[0];
       const tomorrowDate = new Date();
@@ -78,6 +80,7 @@ export default function CustomerHome() {
       setToday(upcoming.find((o) => o.date === todayStr) || null);
       setTomorrow(upcoming.find((o) => o.date === tomStr) || null);
       setWallet(w);
+      setSubMeals((sub as any)?.meals || []);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -93,14 +96,17 @@ export default function CustomerHome() {
         : ALL_MEALS);
   const MEALS = subscribedMeals.length > 0 ? subscribedMeals : ALL_MEALS;
 
-  // Meals NOT in the customer's subscription — drive upsell.
-  const missing: MealKey[] = ALL_MEALS.filter((m) => !subscribedMeals.includes(m));
+  // Meals NOT in the customer's subscription — drive upsell. Source of truth
+  // is the subscription itself; do NOT infer from order rows because the
+  // backend keeps `item_name` populated even when a meal was switched off.
+  const missing: MealKey[] = subMeals.length > 0
+    ? ALL_MEALS.filter((m) => !subMeals.includes(m))
+    : [];
 
   async function addMealToPlan(m: MealKey) {
     Haptics.selectionAsync();
     try {
-      const sub = await subsApi.me();
-      const current = sub?.meals || subscribedMeals;
+      const current = subMeals;
       await subsApi.update({ meals: Array.from(new Set([...current, m])) });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       load();
