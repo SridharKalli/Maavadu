@@ -171,3 +171,15 @@ async def run_seed() -> None:
                 await db.orders.insert_one(o.dict())
 
     log.info("Seed complete")
+
+
+    # Self-heal: ensure no future-dated order ever has delivered=True (this
+    # can sneak in from earlier dev/test sessions and breaks order reshaping).
+    today_iso = today.isoformat()
+    bad = await db.orders.update_many(
+        {"date": {"$gt": today_iso}, "delivered": True},
+        {"$set": {"delivered": False, "delivered_at": None}},
+    )
+    if bad.modified_count:
+        log.info("Self-heal: cleared delivered=True on %d future orders",
+                 bad.modified_count)

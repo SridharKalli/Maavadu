@@ -169,6 +169,11 @@ export const adminApi = {
     total_customers: number; pending_onboarding: number;
     active_subscriptions: number; today_orders: number;
     delivered_today: number; pincodes: number; wallet_low: number;
+    members_with_balance: number; total_positive_balance: number;
+    households_today: number;
+    today_breakfast: number; today_lunch: number; today_dinner: number;
+    support_tickets: number; support_open: number;
+    support_avg_response_seconds: number;
   }>("/admin/stats"),
   orders: (date?: string) =>
     api<DailyOrder[]>(`/admin/orders${date ? `?date=${date}` : ""}`),

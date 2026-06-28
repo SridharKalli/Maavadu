@@ -42,7 +42,7 @@ export default function AdminOrders() {
   return (
     <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.header}>
-        <Text style={styles.title}>Today's Orders</Text>
+        <Text style={styles.title}>Today&apos;s Orders</Text>
         <Text style={styles.sub}>{orders.length} families · {new Date().toDateString()}</Text>
       </View>
 

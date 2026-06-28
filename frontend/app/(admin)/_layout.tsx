@@ -16,38 +16,32 @@ export default function AdminLayout() {
           paddingTop: 6,
           paddingBottom: 8,
         },
-        tabBarLabelStyle: { fontSize: 10, fontWeight: "600" },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
       }}
     >
       <Tabs.Screen name="dashboard" options={{
         title: "Home",
-        tabBarIcon: ({ color }) => <Feather name="grid" size={20} color={color} />,
+        tabBarIcon: ({ color }) => <Feather name="home" size={22} color={color} />,
       }} />
       <Tabs.Screen name="orders" options={{
         title: "Orders",
-        tabBarIcon: ({ color }) => <Feather name="package" size={20} color={color} />,
+        tabBarIcon: ({ color }) => <Feather name="package" size={22} color={color} />,
       }} />
       <Tabs.Screen name="wallet" options={{
         title: "Wallets",
-        tabBarIcon: ({ color }) => <Feather name="credit-card" size={20} color={color} />,
+        tabBarIcon: ({ color }) =>
+          <Feather name="credit-card" size={22} color={color} />,
       }} />
-      <Tabs.Screen name="menu" options={{
-        title: "Menu",
-        tabBarIcon: ({ color }) => <Feather name="book-open" size={20} color={color} />,
+      <Tabs.Screen name="manage" options={{
+        title: "Manage",
+        tabBarIcon: ({ color }) => <Feather name="grid" size={22} color={color} />,
       }} />
-      <Tabs.Screen name="pincodes" options={{
-        title: "Pincodes",
-        tabBarIcon: ({ color }) => <Feather name="map-pin" size={20} color={color} />,
-      }} />
-      <Tabs.Screen name="profile" options={{
-        href: null,  // sign-out access via a button on the dashboard if needed
-      }} />
-      <Tabs.Screen name="pricing" options={{
-        href: null,  // reached from the dashboard shortcut card
-      }} />
-      <Tabs.Screen name="team" options={{
-        href: null,  // reached from the dashboard shortcut card
-      }} />
+      {/* Sub-screens reached from Manage / Dashboard — hidden from the tab bar */}
+      <Tabs.Screen name="menu" options={{ href: null }} />
+      <Tabs.Screen name="pincodes" options={{ href: null }} />
+      <Tabs.Screen name="pricing" options={{ href: null }} />
+      <Tabs.Screen name="team" options={{ href: null }} />
+      <Tabs.Screen name="profile" options={{ href: null }} />
     </Tabs>
   );
 }
