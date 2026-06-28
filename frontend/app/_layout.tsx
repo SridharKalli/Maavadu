@@ -19,12 +19,26 @@ function RouterGate() {
 
   useEffect(() => {
     if (loading) return;
-    const inAuth = segments[0] === "login";
-    if (!user && !inAuth) {
-      router.replace("/login");
-    } else if (user && (inAuth || segments.length === 0)) {
+    const root = segments[0];
+    const inAuth = root === "login";
+    const inOnboarding = root === "onboarding";
+
+    if (!user) {
+      if (!inAuth) router.replace("/login");
+      return;
+    }
+
+    // Customer not yet onboarded → wizard
+    if (user.role === "customer" && !user.onboarded) {
+      if (!inOnboarding) router.replace("/onboarding");
+      return;
+    }
+
+    // Already onboarded but stuck on login / onboarding / index → push to home
+    if (inAuth || inOnboarding || segments.length === 0) {
       if (user.role === "admin") router.replace("/(admin)/dashboard");
       else if (user.role === "delivery") router.replace("/(delivery)/route");
+      else if (user.role === "agent") router.replace("/(agent)/threads");
       else router.replace("/(customer)/home");
     }
   }, [user, loading, segments, router]);

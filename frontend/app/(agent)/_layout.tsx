@@ -2,7 +2,7 @@ import { Tabs } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { colors } from "@/src/lib/theme";
 
-export default function AdminLayout() {
+export default function AgentLayout() {
   return (
     <Tabs
       screenOptions={{
@@ -19,21 +19,9 @@ export default function AdminLayout() {
         tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
       }}
     >
-      <Tabs.Screen name="dashboard" options={{
-        title: "Dashboard",
-        tabBarIcon: ({ color }) => <Feather name="grid" size={22} color={color} />,
-      }} />
-      <Tabs.Screen name="orders" options={{
-        title: "Orders",
-        tabBarIcon: ({ color }) => <Feather name="package" size={22} color={color} />,
-      }} />
-      <Tabs.Screen name="menu" options={{
-        title: "Menu",
-        tabBarIcon: ({ color }) => <Feather name="book-open" size={22} color={color} />,
-      }} />
-      <Tabs.Screen name="pincodes" options={{
-        title: "Pincodes",
-        tabBarIcon: ({ color }) => <Feather name="map-pin" size={22} color={color} />,
+      <Tabs.Screen name="threads" options={{
+        title: "Threads",
+        tabBarIcon: ({ color }) => <Feather name="inbox" size={22} color={color} />,
       }} />
       <Tabs.Screen name="profile" options={{
         title: "Profile",

@@ -2,7 +2,9 @@ import { storage } from "@/src/utils/storage";
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
 
-export type Role = "customer" | "admin" | "delivery";
+export type Role = "customer" | "admin" | "delivery" | "agent";
+export type MealKey = "breakfast" | "lunch" | "dinner";
+export type PlanType = "day" | "week" | "month";
 
 export interface User {
   id: string;
@@ -10,7 +12,9 @@ export interface User {
   name: string;
   role: Role;
   address: string;
+  pincode: string;
   notes: string;
+  onboarded: boolean;
 }
 
 let _token: string | null = null;
@@ -59,8 +63,35 @@ export const auth = {
       method: "POST", body: JSON.stringify({ phone, code }),
     }),
   me: () => api<User>("/auth/me"),
-  updateMe: (patch: { name?: string; address?: string; notes?: string }) =>
+  updateMe: (patch: Partial<Pick<User, "name" | "address" | "notes" | "pincode">>) =>
     api<User>("/auth/me", { method: "PATCH", body: JSON.stringify(patch) }),
+};
+
+// ---- Onboarding ---------------------------------------------------------
+export const onboarding = {
+  checkPincode: (code: string) =>
+    api<{ serviceable: boolean; pincode: Pincode | null }>(
+      `/onboarding/check-pincode/${code}`),
+  complete: (payload: {
+    name: string; address: string; pincode: string; notes?: string;
+    plan_type: PlanType; meals: MealKey[]; default_quantity: number;
+  }) => api<{ user: User; subscription: any }>("/onboarding/complete",
+    { method: "POST", body: JSON.stringify(payload) }),
+};
+
+// ---- Pincodes -----------------------------------------------------------
+export interface Pincode { id: string; code: string; area: string; active: boolean }
+export const pincodesApi = {
+  list: () => api<Pincode[]>("/pincodes"),
+  adminList: () => api<Pincode[]>("/admin/pincodes"),
+  create: (code: string, area: string) =>
+    api<Pincode>("/admin/pincodes", { method: "POST",
+      body: JSON.stringify({ code, area }) }),
+  bulk: (text: string) =>
+    api<{ added: number; updated: number }>("/admin/pincodes/bulk",
+      { method: "POST", body: JSON.stringify({ text }) }),
+  remove: (code: string) =>
+    api<{ deactivated: string }>(`/admin/pincodes/${code}`, { method: "DELETE" }),
 };
 
 // ---- Menu ---------------------------------------------------------------
@@ -71,6 +102,7 @@ export interface WeeklyMenu {
 }
 export const menuApi = {
   week: () => api<WeeklyMenu[]>("/menu/week"),
+  weekPublic: () => api<WeeklyMenu[]>("/menu/public"),
   update: (day: number, patch: Partial<WeeklyMenu>) =>
     api<WeeklyMenu>(`/menu/${day}`, { method: "PUT", body: JSON.stringify(patch) }),
 };
@@ -83,12 +115,11 @@ export interface DailyOrder {
   delivery_user_id: string | null; delivered: boolean; hotbox_collected: boolean;
   cutoff_passed?: boolean;
   customer_name?: string; customer_address?: string; customer_phone?: string;
-  customer_notes?: string; total_quantity?: number;
+  customer_notes?: string; customer_pincode?: string; total_quantity?: number;
 }
 export const ordersApi = {
   upcoming: () => api<DailyOrder[]>("/orders/upcoming"),
-  today: () => api<DailyOrder | null>("/orders/today"),
-  modify: (id: string, meal: "breakfast"|"lunch"|"dinner",
+  modify: (id: string, meal: MealKey,
            patch: { enabled?: boolean; quantity?: number }) =>
     api<DailyOrder>(`/orders/${id}`, {
       method: "PATCH",
@@ -96,12 +127,21 @@ export const ordersApi = {
     }),
 };
 
+export interface Subscription {
+  id: string; plan_type: PlanType; meals: MealKey[];
+  default_quantity: number; start_date: string; end_date: string; active: boolean;
+}
+export const subsApi = {
+  me: () => api<Subscription | null>("/subscriptions/me"),
+};
+
 // ---- Admin --------------------------------------------------------------
 export const adminApi = {
   users: () => api<User[]>("/admin/users"),
   stats: () => api<{
-    total_customers: number; active_subscriptions: number;
-    today_orders: number; delivered_today: number;
+    total_customers: number; pending_onboarding: number;
+    active_subscriptions: number; today_orders: number;
+    delivered_today: number; pincodes: number;
   }>("/admin/stats"),
   orders: (date?: string) =>
     api<DailyOrder[]>(`/admin/orders${date ? `?date=${date}` : ""}`),
@@ -116,4 +156,31 @@ export const deliveryApi = {
     api<DailyOrder>(`/delivery/orders/${id}/delivered`, { method: "POST" }),
   markHotbox: (id: string) =>
     api<DailyOrder>(`/delivery/orders/${id}/hotbox`, { method: "POST" }),
+};
+
+// ---- Support ------------------------------------------------------------
+export interface SupportThread {
+  id: string; customer_id: string;
+  last_message_at: string; last_message_preview: string;
+  unread_for_customer: number; unread_for_agent: number;
+  customer_name?: string; customer_phone?: string; customer_pincode?: string;
+}
+export interface SupportMessage {
+  id: string; thread_id: string;
+  sender_id: string; sender_role: Role;
+  kind: "text" | "voice";
+  text: string; voice_b64: string; voice_duration_ms: number;
+  created_at: string;
+}
+export const supportApi = {
+  myThread: () => api<SupportThread>("/support/me"),
+  listThreads: () => api<SupportThread[]>("/support/threads"),
+  messages: (threadId: string) =>
+    api<SupportMessage[]>(`/support/threads/${threadId}/messages`),
+  send: (threadId: string,
+         payload: { kind: "text" | "voice"; text?: string;
+                    voice_b64?: string; voice_duration_ms?: number }) =>
+    api<SupportMessage>(`/support/threads/${threadId}/messages`,
+      { method: "POST", body: JSON.stringify(payload) }),
+  unread: () => api<{ unread: number }>("/support/unread"),
 };

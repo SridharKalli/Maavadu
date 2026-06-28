@@ -19,27 +19,22 @@ export default function CustomerLayout() {
         tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
       }}
     >
-      <Tabs.Screen
-        name="home"
-        options={{
-          title: "Today",
-          tabBarIcon: ({ color }) => <Feather name="home" size={22} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="calendar"
-        options={{
-          title: "Menu",
-          tabBarIcon: ({ color }) => <Feather name="calendar" size={22} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: "Profile",
-          tabBarIcon: ({ color }) => <Feather name="user" size={22} color={color} />,
-        }}
-      />
+      <Tabs.Screen name="home" options={{
+        title: "Today",
+        tabBarIcon: ({ color }) => <Feather name="home" size={22} color={color} />,
+      }} />
+      <Tabs.Screen name="calendar" options={{
+        title: "Menu",
+        tabBarIcon: ({ color }) => <Feather name="calendar" size={22} color={color} />,
+      }} />
+      <Tabs.Screen name="support" options={{
+        title: "Support",
+        tabBarIcon: ({ color }) => <Feather name="message-circle" size={22} color={color} />,
+      }} />
+      <Tabs.Screen name="profile" options={{
+        title: "Profile",
+        tabBarIcon: ({ color }) => <Feather name="user" size={22} color={color} />,
+      }} />
     </Tabs>
   );
 }

@@ -1,13 +1,16 @@
-"""Home Tiffin Service backend.
+"""Home Tiffin Service backend — Chennai edition.
 
-Phone/OTP authentication (dev mode: OTP is returned in the response — no
-SMS provider yet). JWT tokens carry role (customer/admin/delivery).
+Phone/OTP authentication (dev mode: OTP returned in response). JWT tokens
+carry role (customer/admin/delivery/agent). Customers self-onboard with a
+pincode-gate, choose a meal combo (any subset of B/L/D), and pick a
+Day/Week/Month plan. Voice + text support chat between customer and agent.
 """
 
 import os
 import uuid
 import random
 import logging
+import re
 from pathlib import Path
 from datetime import datetime, timedelta, timezone, date as date_cls
 from typing import List, Optional, Literal
@@ -23,17 +26,13 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 # ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
 MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
-JWT_SECRET = os.environ.get("JWT_SECRET", "tiffin-dev-secret-change-me")
+JWT_SECRET = os.environ.get("JWT_SECRET", "tiffin-dev-secret-please-change-at-least-32b")
 JWT_ALG = "HS256"
 JWT_EXP_DAYS = 30
-DEV_RETURN_OTP = True  # dev mode: return OTP in API response
-CUTOFF_HOUR_LOCAL = 20  # 8 PM
-TZ_OFFSET_HOURS = 5.5  # IST
-
+DEV_RETURN_OTP = True
+CUTOFF_HOUR_LOCAL = 20
 IST = timezone(timedelta(hours=5, minutes=30))
 
 client = AsyncIOMotorClient(MONGO_URL)
@@ -49,7 +48,7 @@ log = logging.getLogger("tiffin")
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
-Role = Literal["customer", "admin", "delivery"]
+Role = Literal["customer", "admin", "delivery", "agent"]
 MealKey = Literal["breakfast", "lunch", "dinner"]
 PlanType = Literal["day", "week", "month"]
 
@@ -60,14 +59,17 @@ class User(BaseModel):
     name: str = ""
     role: Role = "customer"
     address: str = ""
-    notes: str = ""  # delivery notes / landmark
+    pincode: str = ""
+    notes: str = ""
+    onboarded: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-class OtpRecord(BaseModel):
-    phone: str
+class Pincode(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     code: str
-    expires_at: datetime
+    area: str = ""
+    active: bool = True
 
 
 class MealItem(BaseModel):
@@ -77,7 +79,7 @@ class MealItem(BaseModel):
 
 class WeeklyMenu(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    day_of_week: int  # 0=Sun (holiday) ... 6=Sat
+    day_of_week: int
     is_holiday: bool = False
     breakfast: Optional[MealItem] = None
     lunch: Optional[MealItem] = None
@@ -90,7 +92,7 @@ class Subscription(BaseModel):
     plan_type: PlanType
     meals: List[MealKey] = ["breakfast", "lunch", "dinner"]
     default_quantity: int = 1
-    start_date: str  # YYYY-MM-DD
+    start_date: str
     end_date: str
     active: bool = True
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -105,10 +107,10 @@ class OrderMeal(BaseModel):
 class DailyOrder(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
-    date: str  # YYYY-MM-DD
-    breakfast: OrderMeal = Field(default_factory=OrderMeal)
-    lunch: OrderMeal = Field(default_factory=OrderMeal)
-    dinner: OrderMeal = Field(default_factory=OrderMeal)
+    date: str
+    breakfast: OrderMeal = Field(default_factory=lambda: OrderMeal(enabled=False, quantity=0))
+    lunch: OrderMeal = Field(default_factory=lambda: OrderMeal(enabled=False, quantity=0))
+    dinner: OrderMeal = Field(default_factory=lambda: OrderMeal(enabled=False, quantity=0))
     delivery_user_id: Optional[str] = None
     delivered: bool = False
     hotbox_collected: bool = False
@@ -116,7 +118,30 @@ class DailyOrder(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-# Request / response payloads ------------------------------------------------
+# Support chat
+class SupportThread(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    customer_id: str
+    last_message_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_message_preview: str = ""
+    unread_for_customer: int = 0
+    unread_for_agent: int = 0
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class SupportMessage(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    thread_id: str
+    sender_id: str
+    sender_role: Role
+    kind: Literal["text", "voice"] = "text"
+    text: str = ""
+    voice_b64: str = ""  # data URI: "data:audio/mp4;base64,..."
+    voice_duration_ms: int = 0
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# Payloads ------------------------------------------------------------------
 class SendOtpReq(BaseModel):
     phone: str
 
@@ -130,6 +155,17 @@ class UpdateProfileReq(BaseModel):
     name: Optional[str] = None
     address: Optional[str] = None
     notes: Optional[str] = None
+    pincode: Optional[str] = None
+
+
+class OnboardReq(BaseModel):
+    name: str
+    address: str
+    pincode: str
+    notes: str = ""
+    plan_type: PlanType
+    meals: List[MealKey]
+    default_quantity: int = 1
 
 
 class UpdateOrderMealReq(BaseModel):
@@ -143,6 +179,7 @@ class AdminCreateUserReq(BaseModel):
     name: str
     role: Role = "customer"
     address: str = ""
+    pincode: str = ""
     notes: str = ""
 
 
@@ -153,38 +190,30 @@ class UpdateMenuReq(BaseModel):
     dinner: Optional[MealItem] = None
 
 
-class CreateSubscriptionReq(BaseModel):
-    user_id: str
-    plan_type: PlanType
-    start_date: str
-    meals: List[MealKey] = ["breakfast", "lunch", "dinner"]
-    default_quantity: int = 1
+class CreatePincodeReq(BaseModel):
+    code: str
+    area: str = ""
 
 
-class AssignDeliveryReq(BaseModel):
-    order_ids: List[str]
-    delivery_user_id: str
+class BulkPincodeReq(BaseModel):
+    text: str  # comma/space/newline separated. Optional "code:Area" pairs.
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+class SendMessageReq(BaseModel):
+    kind: Literal["text", "voice"] = "text"
+    text: str = ""
+    voice_b64: str = ""
+    voice_duration_ms: int = 0
+
+
+# Helpers -------------------------------------------------------------------
 def _now_ist() -> datetime:
     return datetime.now(IST)
 
 
-def _doc(d: dict) -> dict:
-    """Strip Mongo _id."""
-    d.pop("_id", None)
-    return d
-
-
 def _mk_token(user_id: str, role: str) -> str:
-    payload = {
-        "sub": user_id,
-        "role": role,
-        "exp": datetime.now(timezone.utc) + timedelta(days=JWT_EXP_DAYS),
-    }
+    payload = {"sub": user_id, "role": role,
+               "exp": datetime.now(timezone.utc) + timedelta(days=JWT_EXP_DAYS)}
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
 
@@ -215,7 +244,6 @@ def _today_ist_date() -> date_cls:
 
 
 def _cutoff_passed_for(target_date_str: str) -> bool:
-    """Return True if we are past 8 PM IST of the day before target_date."""
     target = datetime.strptime(target_date_str, "%Y-%m-%d").date()
     cutoff_day = target - timedelta(days=1)
     cutoff_dt = datetime(cutoff_day.year, cutoff_day.month, cutoff_day.day,
@@ -223,47 +251,130 @@ def _cutoff_passed_for(target_date_str: str) -> bool:
     return _now_ist() >= cutoff_dt
 
 
-# ---------------------------------------------------------------------------
-# Seed data
-# ---------------------------------------------------------------------------
+async def _generate_orders_for_subscription(sub: dict) -> int:
+    """Create DailyOrder rows for the next 7 days based on the subscription's
+    meals list. Only includes the meals the customer subscribed to. Skips days
+    that already have an order for the same user (idempotent).
+    """
+    today = _today_ist_date()
+    delivery = await db.users.find_one({"role": "delivery"}, {"_id": 0})
+    end_date = datetime.strptime(sub["end_date"], "%Y-%m-%d").date()
+    inserted = 0
+    for offset in range(8):
+        d = today + timedelta(days=offset)
+        if d > end_date:
+            break
+        dow = (d.weekday() + 1) % 7  # Sun=0..Sat=6
+        menu = await db.weekly_menu.find_one({"day_of_week": dow}, {"_id": 0})
+        if not menu or menu.get("is_holiday"):
+            continue
+        existing = await db.orders.find_one({"user_id": sub["user_id"], "date": d.isoformat()})
+        if existing:
+            continue
+        order = DailyOrder(
+            user_id=sub["user_id"], date=d.isoformat(),
+            delivery_user_id=delivery["id"] if delivery else None,
+        )
+        order_d = order.dict()
+        for m in ("breakfast", "lunch", "dinner"):
+            if m in sub["meals"]:
+                order_d[m] = {
+                    "enabled": True,
+                    "quantity": sub.get("default_quantity", 1),
+                    "item_name": (menu.get(m) or {}).get("name", ""),
+                }
+        await db.orders.insert_one(order_d)
+        inserted += 1
+    return inserted
+
+
+# Seed data -----------------------------------------------------------------
 WEEKLY_MENU_SEED = [
-    {"day_of_week": 0, "is_holiday": True, "breakfast": None, "lunch": None, "dinner": None},
+    {"day_of_week": 0, "is_holiday": True},
     {"day_of_week": 1, "is_holiday": False,
-     "breakfast": {"name": "Poha", "description": "Flattened rice with peanuts & curry leaves"},
-     "lunch": {"name": "Dal Tadka, Jeera Rice, Chapati, Aloo Gobi", "description": "North Indian thali"},
-     "dinner": {"name": "Rajma Chawal", "description": "Kidney bean curry with steamed rice"}},
+     "breakfast": {"name": "Idli with Sambar & Chutney",
+                   "description": "Steamed rice cakes, lentil stew, coconut chutney"},
+     "lunch": {"name": "Sambar Rice, Rasam, Beans Poriyal, Curd Rice",
+               "description": "Tamil classic thali"},
+     "dinner": {"name": "Chapati, Dal Tadka, Mix Veg",
+                "description": "Light evening meal"}},
     {"day_of_week": 2, "is_holiday": False,
-     "breakfast": {"name": "Idli & Sambar", "description": "Steamed rice cakes with lentil stew"},
-     "lunch": {"name": "Sambar Rice, Curd Rice, Beans Poriyal", "description": "South Indian thali"},
-     "dinner": {"name": "Roti, Mix Veg, Dal Fry", "description": "Light home dinner"}},
+     "breakfast": {"name": "Pongal & Vada",
+                   "description": "Ghee pongal with crisp medu vadai"},
+     "lunch": {"name": "Lemon Rice, Vatha Kuzhambu, Appalam, Curd",
+               "description": "Tangy Tamil staple"},
+     "dinner": {"name": "Dosa, Tomato Chutney, Sambar",
+                "description": "Crisp dosa dinner"}},
     {"day_of_week": 3, "is_holiday": False,
-     "breakfast": {"name": "Upma", "description": "Semolina with veggies"},
-     "lunch": {"name": "Chole Bhature", "description": "Chickpea curry with fluffy bread"},
-     "dinner": {"name": "Paneer Butter Masala, Roti, Salad", "description": "Restaurant-style at home"}},
+     "breakfast": {"name": "Upma with Coconut Chutney", "description": "Semolina with veggies"},
+     "lunch": {"name": "Bisi Bele Bath, Boondi Raita, Salad",
+               "description": "Tangy spicy rice dish"},
+     "dinner": {"name": "Roti, Channa Masala", "description": "North-Indian style"}},
     {"day_of_week": 4, "is_holiday": False,
-     "breakfast": {"name": "Aloo Paratha & Curd", "description": "Stuffed flatbread, fresh curd"},
-     "lunch": {"name": "Veg Pulao, Raita, Dal Fry", "description": "Aromatic rice meal"},
-     "dinner": {"name": "Khichdi & Papad", "description": "Comforting lentil-rice porridge"}},
+     "breakfast": {"name": "Adai with Avial", "description": "Mixed-lentil pancake"},
+     "lunch": {"name": "Curd Rice, Karuvepillai Podi, Pickle, Banana",
+               "description": "Comforting curd-rice meal"},
+     "dinner": {"name": "Chapati, Mushroom Masala", "description": "Soft chapatis"}},
     {"day_of_week": 5, "is_holiday": False,
-     "breakfast": {"name": "Masala Dosa", "description": "Crisp rice crepe with potato masala"},
-     "lunch": {"name": "Bisi Bele Bath, Curd, Pickle", "description": "Karnataka special"},
-     "dinner": {"name": "Roti, Bhindi Masala, Dal", "description": "Simple ghar-ka-khana"}},
+     "breakfast": {"name": "Poha & Filter Coffee", "description": "Flattened rice with peanuts"},
+     "lunch": {"name": "Veg Biryani, Onion Raita, Brinjal Curry",
+               "description": "Friday special"},
+     "dinner": {"name": "Roti, Paneer Butter Masala", "description": "Restaurant-style at home"}},
     {"day_of_week": 6, "is_holiday": False,
      "breakfast": {"name": "Puri Sabzi", "description": "Fried bread with potato curry"},
-     "lunch": {"name": "Veg Biryani, Mirchi Salan, Raita", "description": "Saturday special biryani"},
-     "dinner": {"name": "Dosa & Chutney", "description": "Light south-style dinner"}},
+     "lunch": {"name": "Tamarind Rice, Curd, Vadagam, Sweet",
+               "description": "Saturday Tamil special"},
+     "dinner": {"name": "Idiyappam with Vegetable Stew", "description": "Light dinner"}},
+]
+
+
+# Chennai pincodes (representative sample of areas served)
+CHENNAI_PINCODES = [
+    ("600001", "George Town"),
+    ("600002", "Anna Salai"),
+    ("600004", "Mylapore"),
+    ("600005", "Triplicane"),
+    ("600006", "Greams Road"),
+    ("600010", "Kilpauk"),
+    ("600017", "T. Nagar"),
+    ("600020", "Adyar"),
+    ("600028", "R.A. Puram"),
+    ("600040", "Anna Nagar"),
+    ("600041", "Thiruvanmiyur"),
+    ("600042", "Velachery"),
+    ("600045", "Pallavaram"),
+    ("600090", "Besant Nagar"),
+    ("600096", "Perungudi"),
+    ("600100", "Sholinganallur"),
+    ("600101", "Anna Nagar West Extn"),
+    ("600113", "Taramani"),
 ]
 
 
 SEED_USERS = [
-    {"phone": "+919000000001", "name": "Owner Admin", "role": "admin", "address": "HQ Kitchen, Bangalore"},
-    {"phone": "+919000000002", "name": "Ravi Delivery", "role": "delivery", "address": "Indiranagar Hub"},
+    {"phone": "+919000000001", "name": "Owner Admin", "role": "admin",
+     "address": "HQ Kitchen, Mylapore, Chennai", "pincode": "600004", "onboarded": True},
+    {"phone": "+919000000002", "name": "Ravi Delivery", "role": "delivery",
+     "address": "Adyar Hub, Chennai", "pincode": "600020", "onboarded": True},
+    {"phone": "+919000000003", "name": "Priya Support", "role": "agent",
+     "address": "Customer Care, Chennai", "pincode": "600004", "onboarded": True},
     {"phone": "+919999911111", "name": "Sharma Family", "role": "customer",
-     "address": "Flat 302, Green Acres, Indiranagar, Bangalore", "notes": "Ring twice"},
+     "address": "Flat 302, Green Acres, Adyar, Chennai",
+     "pincode": "600020", "notes": "Ring twice", "onboarded": True},
     {"phone": "+919999922222", "name": "Iyer Family", "role": "customer",
-     "address": "Villa 12, Palm Meadows, Whitefield, Bangalore", "notes": "Leave at gate"},
+     "address": "Villa 12, Palm Meadows, Velachery, Chennai",
+     "pincode": "600042", "notes": "Leave at gate", "onboarded": True},
     {"phone": "+919999933333", "name": "Khan Family", "role": "customer",
-     "address": "House 7, Cooke Town, Bangalore", "notes": "Hand to security"},
+     "address": "House 7, R.A. Puram, Chennai",
+     "pincode": "600028", "notes": "Hand to security", "onboarded": True},
+]
+
+
+SEED_SUBS = [
+    # phone -> (meals, plan)
+    ("+919999911111", ["breakfast", "lunch", "dinner"], "month"),
+    ("+919999922222", ["lunch", "dinner"], "month"),
+    ("+919999933333", ["lunch"], "week"),
 ]
 
 
@@ -278,84 +389,69 @@ async def _seed() -> None:
             await db.weekly_menu.insert_one(WeeklyMenu(**m).dict())
         log.info("Seeded weekly menu")
 
-    # Subscriptions + orders for customers — start today, end +30 days
-    customers = await db.users.find({"role": "customer"}, {"_id": 0}).to_list(1000)
-    delivery = await db.users.find_one({"role": "delivery"}, {"_id": 0})
-    today = _today_ist_date()
-    end = today + timedelta(days=29)
+    if await db.pincodes.count_documents({}) == 0:
+        for code, area in CHENNAI_PINCODES:
+            await db.pincodes.insert_one(Pincode(code=code, area=area).dict())
+        log.info("Seeded %d Chennai pincodes", len(CHENNAI_PINCODES))
 
-    for c in customers:
+    today = _today_ist_date()
+
+    # Customer subscriptions
+    for phone, meals, plan in SEED_SUBS:
+        c = await db.users.find_one({"phone": phone}, {"_id": 0})
+        if not c:
+            continue
         existing = await db.subscriptions.find_one({"user_id": c["id"], "active": True})
         if existing:
             continue
-        sub = Subscription(
-            user_id=c["id"], plan_type="month",
-            start_date=today.isoformat(), end_date=end.isoformat(),
-            meals=["breakfast", "lunch", "dinner"], default_quantity=1,
-        )
-        await db.subscriptions.insert_one(sub.dict())
+        duration = {"day": 1, "week": 7, "month": 30}[plan]
+        end = today + timedelta(days=duration - 1)
+        sub = Subscription(user_id=c["id"], plan_type=plan,
+                           start_date=today.isoformat(), end_date=end.isoformat(),
+                           meals=meals, default_quantity=1)
+        sub_d = sub.dict()
+        await db.subscriptions.insert_one(sub_d)
+        await _generate_orders_for_subscription(sub_d)
 
-    # Generate 7 days of daily orders if not present (skip Sundays).
-    # Also seed one "yesterday delivered, hotbox not collected" entry so the
-    # delivery person sees a pending pickup demo.
-    yesterday = today - timedelta(days=1)
-    yesterday_dow = (yesterday.weekday() + 1) % 7
-    y_menu = await db.weekly_menu.find_one({"day_of_week": yesterday_dow}, {"_id": 0})
-    if customers and y_menu and not y_menu.get("is_holiday"):
-        c = customers[0]
-        existing = await db.orders.find_one({"user_id": c["id"], "date": yesterday.isoformat()})
-        if not existing:
-            await db.orders.insert_one(DailyOrder(
-                user_id=c["id"], date=yesterday.isoformat(),
-                breakfast=OrderMeal(enabled=True, quantity=2,
-                                    item_name=(y_menu.get("breakfast") or {}).get("name", "")),
-                lunch=OrderMeal(enabled=True, quantity=2,
-                                item_name=(y_menu.get("lunch") or {}).get("name", "")),
-                dinner=OrderMeal(enabled=True, quantity=2,
-                                 item_name=(y_menu.get("dinner") or {}).get("name", "")),
-                delivery_user_id=delivery["id"] if delivery else None,
-                delivered=True, hotbox_collected=False,
-                delivered_at=datetime.now(timezone.utc) - timedelta(hours=18),
-            ).dict())
+    # Yesterday pickup demo
+    delivery = await db.users.find_one({"role": "delivery"}, {"_id": 0})
+    sharma = await db.users.find_one({"phone": "+919999911111"}, {"_id": 0})
+    if sharma:
+        yesterday = today - timedelta(days=1)
+        ydow = (yesterday.weekday() + 1) % 7
+        y_menu = await db.weekly_menu.find_one({"day_of_week": ydow}, {"_id": 0})
+        if y_menu and not y_menu.get("is_holiday"):
+            existing = await db.orders.find_one({"user_id": sharma["id"],
+                                                 "date": yesterday.isoformat()})
+            if not existing:
+                o = DailyOrder(
+                    user_id=sharma["id"], date=yesterday.isoformat(),
+                    breakfast=OrderMeal(enabled=True, quantity=2,
+                                        item_name=(y_menu.get("breakfast") or {}).get("name", "")),
+                    lunch=OrderMeal(enabled=True, quantity=2,
+                                    item_name=(y_menu.get("lunch") or {}).get("name", "")),
+                    dinner=OrderMeal(enabled=True, quantity=2,
+                                     item_name=(y_menu.get("dinner") or {}).get("name", "")),
+                    delivery_user_id=delivery["id"] if delivery else None,
+                    delivered=True, hotbox_collected=False,
+                    delivered_at=datetime.now(timezone.utc) - timedelta(hours=18),
+                )
+                await db.orders.insert_one(o.dict())
 
-    for offset in range(7):
-        d = today + timedelta(days=offset)
-        dow = (d.weekday() + 1) % 7  # python: Mon=0..Sun=6 -> Sun=0..Sat=6
-        menu = await db.weekly_menu.find_one({"day_of_week": dow}, {"_id": 0})
-        if not menu or menu.get("is_holiday"):
-            continue
-        for c in customers:
-            existing = await db.orders.find_one({"user_id": c["id"], "date": d.isoformat()})
-            if existing:
-                continue
-            order = DailyOrder(
-                user_id=c["id"],
-                date=d.isoformat(),
-                breakfast=OrderMeal(enabled=True, quantity=1,
-                                    item_name=(menu["breakfast"] or {}).get("name", "")),
-                lunch=OrderMeal(enabled=True, quantity=1,
-                                item_name=(menu["lunch"] or {}).get("name", "")),
-                dinner=OrderMeal(enabled=True, quantity=1,
-                                 item_name=(menu["dinner"] or {}).get("name", "")),
-                delivery_user_id=delivery["id"] if delivery else None,
-            )
-            await db.orders.insert_one(order.dict())
     log.info("Seed complete")
 
 
 # ---------------------------------------------------------------------------
-# Auth routes
+# Auth
 # ---------------------------------------------------------------------------
 @api.post("/auth/send-otp")
 async def send_otp(req: SendOtpReq):
     phone = req.phone.strip()
     if not phone:
         raise HTTPException(400, "phone required")
-
-    # Auto-create customer on first login
     user = await db.users.find_one({"phone": phone}, {"_id": 0})
     if not user:
-        new_user = User(phone=phone, name="", role="customer")
+        new_user = User(phone=phone, role="customer", onboarded=False)
         await db.users.insert_one(new_user.dict())
 
     code = f"{random.randint(0, 999999):06d}"
@@ -386,7 +482,6 @@ async def verify_otp(req: VerifyOtpReq):
         raise HTTPException(400, "OTP expired")
     if rec["code"] != req.code.strip():
         raise HTTPException(400, "Invalid OTP")
-
     user = await db.users.find_one({"phone": req.phone}, {"_id": 0})
     if not user:
         raise HTTPException(404, "User not found")
@@ -409,12 +504,134 @@ async def update_me(req: UpdateProfileReq, user: dict = Depends(get_current_user
 
 
 # ---------------------------------------------------------------------------
+# Onboarding (customer self-signup)
+# ---------------------------------------------------------------------------
+@api.get("/onboarding/check-pincode/{code}")
+async def check_pincode(code: str, _: dict = Depends(get_current_user)):
+    p = await db.pincodes.find_one({"code": code, "active": True}, {"_id": 0})
+    return {"serviceable": bool(p), "pincode": p}
+
+
+@api.post("/onboarding/complete")
+async def complete_onboarding(req: OnboardReq, user: dict = Depends(get_current_user)):
+    if user["role"] != "customer":
+        raise HTTPException(403, "Only customers can onboard")
+    if not req.meals:
+        raise HTTPException(400, "Pick at least one meal")
+    if req.default_quantity < 1 or req.default_quantity > 3:
+        raise HTTPException(400, "Members per meal must be 1..3")
+    p = await db.pincodes.find_one({"code": req.pincode, "active": True}, {"_id": 0})
+    if not p:
+        raise HTTPException(400, "Sorry, we don't deliver to that pincode yet")
+
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {
+            "name": req.name, "address": req.address,
+            "pincode": req.pincode, "notes": req.notes,
+            "onboarded": True,
+        }},
+    )
+
+    # Deactivate previous subs
+    await db.subscriptions.update_many(
+        {"user_id": user["id"], "active": True}, {"$set": {"active": False}},
+    )
+    today = _today_ist_date()
+    duration = {"day": 1, "week": 7, "month": 30}[req.plan_type]
+    end = today + timedelta(days=duration - 1)
+    sub = Subscription(
+        user_id=user["id"], plan_type=req.plan_type,
+        start_date=today.isoformat(), end_date=end.isoformat(),
+        meals=req.meals, default_quantity=req.default_quantity,
+    )
+    sub_d = sub.dict()
+    await db.subscriptions.insert_one(sub_d)
+    await _generate_orders_for_subscription(sub_d)
+    sub_d.pop("_id", None)
+
+    refreshed = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    return {"user": refreshed, "subscription": sub_d}
+
+
+# ---------------------------------------------------------------------------
+# Pincodes
+# ---------------------------------------------------------------------------
+@api.get("/pincodes")
+async def list_pincodes(_: dict = Depends(get_current_user)):
+    return await db.pincodes.find({"active": True}, {"_id": 0}).sort("code", 1).to_list(1000)
+
+
+@api.get("/admin/pincodes")
+async def admin_list_pincodes(_: dict = Depends(require_role("admin"))):
+    return await db.pincodes.find({}, {"_id": 0}).sort("code", 1).to_list(2000)
+
+
+@api.post("/admin/pincodes")
+async def admin_create_pincode(req: CreatePincodeReq,
+                               _: dict = Depends(require_role("admin"))):
+    code = req.code.strip()
+    if not re.fullmatch(r"\d{6}", code):
+        raise HTTPException(400, "Pincode must be 6 digits")
+    existing = await db.pincodes.find_one({"code": code}, {"_id": 0})
+    if existing:
+        await db.pincodes.update_one({"code": code},
+                                     {"$set": {"area": req.area, "active": True}})
+        return await db.pincodes.find_one({"code": code}, {"_id": 0})
+    p = Pincode(code=code, area=req.area)
+    await db.pincodes.insert_one(p.dict())
+    return p.dict()
+
+
+@api.post("/admin/pincodes/bulk")
+async def admin_bulk_pincodes(req: BulkPincodeReq,
+                              _: dict = Depends(require_role("admin"))):
+    """Accepts a free-form blob. Each token can be either "600001" or
+    "600001:Mylapore" (separator `:` or `-`)."""
+    added = 0
+    updated = 0
+    for raw in re.split(r"[,\n\r]+", req.text):
+        raw = raw.strip()
+        if not raw:
+            continue
+        parts = re.split(r"[:\-]", raw, maxsplit=1)
+        code = parts[0].strip()
+        area = parts[1].strip() if len(parts) > 1 else ""
+        if not re.fullmatch(r"\d{6}", code):
+            continue
+        existing = await db.pincodes.find_one({"code": code}, {"_id": 0})
+        if existing:
+            await db.pincodes.update_one(
+                {"code": code},
+                {"$set": {"active": True, "area": area or existing.get("area", "")}},
+            )
+            updated += 1
+        else:
+            await db.pincodes.insert_one(Pincode(code=code, area=area).dict())
+            added += 1
+    return {"added": added, "updated": updated}
+
+
+@api.delete("/admin/pincodes/{code}")
+async def admin_delete_pincode(code: str, _: dict = Depends(require_role("admin"))):
+    res = await db.pincodes.update_one({"code": code}, {"$set": {"active": False}})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Pincode not found")
+    return {"deactivated": code}
+
+
+# ---------------------------------------------------------------------------
 # Menu
 # ---------------------------------------------------------------------------
 @api.get("/menu/week")
 async def get_week_menu(_: dict = Depends(get_current_user)):
-    items = await db.weekly_menu.find({}, {"_id": 0}).sort("day_of_week", 1).to_list(10)
-    return items
+    return await db.weekly_menu.find({}, {"_id": 0}).sort("day_of_week", 1).to_list(10)
+
+
+@api.get("/menu/public")
+async def get_public_menu():
+    """Unauthenticated menu preview for the onboarding flow."""
+    return await db.weekly_menu.find({}, {"_id": 0}).sort("day_of_week", 1).to_list(10)
 
 
 @api.put("/menu/{day_of_week}")
@@ -431,7 +648,7 @@ async def update_menu(day_of_week: int, req: UpdateMenuReq,
 
 
 # ---------------------------------------------------------------------------
-# Orders (customer)
+# Orders
 # ---------------------------------------------------------------------------
 @api.get("/orders/upcoming")
 async def upcoming_orders(user: dict = Depends(get_current_user)):
@@ -446,15 +663,6 @@ async def upcoming_orders(user: dict = Depends(get_current_user)):
     return orders
 
 
-@api.get("/orders/today")
-async def today_order(user: dict = Depends(get_current_user)):
-    today = _today_ist_date().isoformat()
-    order = await db.orders.find_one({"user_id": user["id"], "date": today}, {"_id": 0})
-    if order:
-        order["cutoff_passed"] = True
-    return order
-
-
 @api.patch("/orders/{order_id}")
 async def modify_order(order_id: str, req: UpdateOrderMealReq,
                        user: dict = Depends(get_current_user)):
@@ -465,7 +673,10 @@ async def modify_order(order_id: str, req: UpdateOrderMealReq,
         raise HTTPException(403, "Not your order")
     if _cutoff_passed_for(order["date"]):
         raise HTTPException(400, "8 PM cutoff has passed for this date")
-
+    sub = await db.subscriptions.find_one(
+        {"user_id": order["user_id"], "active": True}, {"_id": 0})
+    if sub and req.meal not in sub["meals"]:
+        raise HTTPException(400, f"You aren't subscribed for {req.meal}")
     meal = order[req.meal]
     if req.enabled is not None:
         meal["enabled"] = req.enabled
@@ -482,29 +693,8 @@ async def modify_order(order_id: str, req: UpdateOrderMealReq,
 # ---------------------------------------------------------------------------
 @api.get("/subscriptions/me")
 async def my_subscription(user: dict = Depends(get_current_user)):
-    sub = await db.subscriptions.find_one(
-        {"user_id": user["id"], "active": True}, {"_id": 0}
-    )
-    return sub
-
-
-@api.post("/subscriptions")
-async def create_subscription(req: CreateSubscriptionReq,
-                              actor: dict = Depends(get_current_user)):
-    if actor["role"] != "admin" and actor["id"] != req.user_id:
-        raise HTTPException(403, "forbidden")
-    start = datetime.strptime(req.start_date, "%Y-%m-%d").date()
-    duration = {"day": 1, "week": 7, "month": 30}[req.plan_type]
-    end = start + timedelta(days=duration - 1)
-    sub = Subscription(
-        user_id=req.user_id, plan_type=req.plan_type,
-        start_date=start.isoformat(), end_date=end.isoformat(),
-        meals=req.meals, default_quantity=req.default_quantity,
-    )
-    await db.subscriptions.update_many({"user_id": req.user_id, "active": True},
-                                       {"$set": {"active": False}})
-    await db.subscriptions.insert_one(sub.dict())
-    return sub.dict()
+    return await db.subscriptions.find_one(
+        {"user_id": user["id"], "active": True}, {"_id": 0})
 
 
 # ---------------------------------------------------------------------------
@@ -512,16 +702,15 @@ async def create_subscription(req: CreateSubscriptionReq,
 # ---------------------------------------------------------------------------
 @api.get("/admin/users")
 async def admin_list_users(_: dict = Depends(require_role("admin"))):
-    return await db.users.find({}, {"_id": 0}).to_list(1000)
+    return await db.users.find({}, {"_id": 0}).to_list(2000)
 
 
 @api.post("/admin/users")
 async def admin_create_user(req: AdminCreateUserReq,
                             _: dict = Depends(require_role("admin"))):
-    existing = await db.users.find_one({"phone": req.phone}, {"_id": 0})
-    if existing:
+    if await db.users.find_one({"phone": req.phone}, {"_id": 0}):
         raise HTTPException(400, "User already exists")
-    u = User(**req.dict())
+    u = User(**req.dict(), onboarded=True if req.role != "customer" else False)
     await db.users.insert_one(u.dict())
     return u.dict()
 
@@ -530,46 +719,36 @@ async def admin_create_user(req: AdminCreateUserReq,
 async def admin_orders(date: Optional[str] = None,
                        _: dict = Depends(require_role("admin"))):
     target = date or _today_ist_date().isoformat()
-    orders = await db.orders.find({"date": target}, {"_id": 0}).to_list(1000)
-    # join user info
+    orders = await db.orders.find({"date": target}, {"_id": 0}).to_list(2000)
     user_ids = list({o["user_id"] for o in orders})
-    users = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0}).to_list(1000)
+    users = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0}).to_list(2000)
     umap = {u["id"]: u for u in users}
     for o in orders:
         u = umap.get(o["user_id"], {})
         o["customer_name"] = u.get("name", "")
         o["customer_address"] = u.get("address", "")
         o["customer_phone"] = u.get("phone", "")
+        o["customer_pincode"] = u.get("pincode", "")
     return orders
-
-
-@api.post("/admin/orders/assign")
-async def admin_assign(req: AssignDeliveryReq,
-                       _: dict = Depends(require_role("admin"))):
-    res = await db.orders.update_many(
-        {"id": {"$in": req.order_ids}},
-        {"$set": {"delivery_user_id": req.delivery_user_id}},
-    )
-    return {"updated": res.modified_count}
 
 
 @api.get("/admin/stats")
 async def admin_stats(_: dict = Depends(require_role("admin"))):
     today = _today_ist_date().isoformat()
-    total_customers = await db.users.count_documents({"role": "customer"})
-    today_orders = await db.orders.count_documents({"date": today})
-    delivered_today = await db.orders.count_documents({"date": today, "delivered": True})
-    active_subs = await db.subscriptions.count_documents({"active": True})
     return {
-        "total_customers": total_customers,
-        "active_subscriptions": active_subs,
-        "today_orders": today_orders,
-        "delivered_today": delivered_today,
+        "total_customers": await db.users.count_documents({"role": "customer",
+                                                            "onboarded": True}),
+        "pending_onboarding": await db.users.count_documents({"role": "customer",
+                                                               "onboarded": False}),
+        "active_subscriptions": await db.subscriptions.count_documents({"active": True}),
+        "today_orders": await db.orders.count_documents({"date": today}),
+        "delivered_today": await db.orders.count_documents({"date": today, "delivered": True}),
+        "pincodes": await db.pincodes.count_documents({"active": True}),
     }
 
 
 # ---------------------------------------------------------------------------
-# Delivery routes
+# Delivery
 # ---------------------------------------------------------------------------
 @api.get("/delivery/route")
 async def delivery_route(date: Optional[str] = None,
@@ -578,14 +757,13 @@ async def delivery_route(date: Optional[str] = None,
     query = {"date": target}
     if user["role"] == "delivery":
         query["delivery_user_id"] = user["id"]
-    orders = await db.orders.find(query, {"_id": 0}).to_list(1000)
+    orders = await db.orders.find(query, {"_id": 0}).to_list(2000)
     user_ids = list({o["user_id"] for o in orders})
-    customers = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0}).to_list(1000)
+    customers = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0}).to_list(2000)
     umap = {u["id"]: u for u in customers}
     out = []
     for o in orders:
         u = umap.get(o["user_id"], {})
-        # Count meals + skip orders where everything is disabled or qty=0
         total_qty = sum(o[m]["quantity"] for m in ("breakfast", "lunch", "dinner")
                         if o[m]["enabled"])
         if total_qty == 0:
@@ -596,27 +774,22 @@ async def delivery_route(date: Optional[str] = None,
             "customer_address": u.get("address", ""),
             "customer_phone": u.get("phone", ""),
             "customer_notes": u.get("notes", ""),
+            "customer_pincode": u.get("pincode", ""),
             "total_quantity": total_qty,
         })
-    out.sort(key=lambda r: r["customer_address"])
+    out.sort(key=lambda r: (r.get("customer_pincode", ""), r["customer_address"]))
     return out
 
 
 @api.get("/delivery/pickups")
 async def delivery_pickups(user: dict = Depends(require_role("delivery", "admin"))):
-    """Empty hotboxes still pending pick-up from previous days.
-
-    Convention: a hotbox is left at the customer's place on delivery and must
-    be collected before the next drop. So we surface every past-or-today order
-    that was delivered but the box has not yet been collected.
-    """
     today = _today_ist_date().isoformat()
     query = {"delivered": True, "hotbox_collected": False, "date": {"$lte": today}}
     if user["role"] == "delivery":
         query["delivery_user_id"] = user["id"]
-    orders = await db.orders.find(query, {"_id": 0}).sort("date", 1).to_list(1000)
+    orders = await db.orders.find(query, {"_id": 0}).sort("date", 1).to_list(2000)
     user_ids = list({o["user_id"] for o in orders})
-    customers = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0}).to_list(1000)
+    customers = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0}).to_list(2000)
     umap = {u["id"]: u for u in customers}
     out = []
     for o in orders:
@@ -660,24 +833,117 @@ async def mark_hotbox(order_id: str,
 
 
 # ---------------------------------------------------------------------------
-# Misc
+# Support chat
+# ---------------------------------------------------------------------------
+async def _get_or_create_thread(customer_id: str) -> dict:
+    t = await db.support_threads.find_one({"customer_id": customer_id}, {"_id": 0})
+    if t:
+        return t
+    new = SupportThread(customer_id=customer_id)
+    await db.support_threads.insert_one(new.dict())
+    return new.dict()
+
+
+def _preview_for(msg: SupportMessage) -> str:
+    return msg.text[:60] if msg.kind == "text" else "🎤 Voice message"
+
+
+@api.get("/support/me")
+async def my_thread(user: dict = Depends(get_current_user)):
+    if user["role"] != "customer":
+        raise HTTPException(403, "Customers only")
+    t = await _get_or_create_thread(user["id"])
+    return t
+
+
+@api.get("/support/threads")
+async def list_threads(_: dict = Depends(require_role("agent", "admin"))):
+    threads = await db.support_threads.find({}, {"_id": 0}) \
+        .sort("last_message_at", -1).to_list(500)
+    user_ids = list({t["customer_id"] for t in threads})
+    users = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0}).to_list(500)
+    umap = {u["id"]: u for u in users}
+    for t in threads:
+        u = umap.get(t["customer_id"], {})
+        t["customer_name"] = u.get("name", "")
+        t["customer_phone"] = u.get("phone", "")
+        t["customer_pincode"] = u.get("pincode", "")
+    return threads
+
+
+@api.get("/support/threads/{thread_id}/messages")
+async def list_messages(thread_id: str, user: dict = Depends(get_current_user)):
+    t = await db.support_threads.find_one({"id": thread_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Thread not found")
+    if user["role"] == "customer" and t["customer_id"] != user["id"]:
+        raise HTTPException(403, "Not your thread")
+    if user["role"] not in ("customer", "agent", "admin"):
+        raise HTTPException(403, "forbidden")
+    msgs = await db.support_messages.find({"thread_id": thread_id}, {"_id": 0}) \
+        .sort("created_at", 1).to_list(2000)
+    # Reset unread for this side
+    if user["role"] == "customer":
+        await db.support_threads.update_one({"id": thread_id},
+                                            {"$set": {"unread_for_customer": 0}})
+    else:
+        await db.support_threads.update_one({"id": thread_id},
+                                            {"$set": {"unread_for_agent": 0}})
+    return msgs
+
+
+@api.post("/support/threads/{thread_id}/messages")
+async def send_message(thread_id: str, req: SendMessageReq,
+                       user: dict = Depends(get_current_user)):
+    t = await db.support_threads.find_one({"id": thread_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Thread not found")
+    if user["role"] == "customer" and t["customer_id"] != user["id"]:
+        raise HTTPException(403, "Not your thread")
+    if user["role"] not in ("customer", "agent", "admin"):
+        raise HTTPException(403, "forbidden")
+
+    if req.kind == "text" and not req.text.strip():
+        raise HTTPException(400, "Message cannot be empty")
+    if req.kind == "voice" and not req.voice_b64:
+        raise HTTPException(400, "voice_b64 required")
+    if req.kind == "voice" and len(req.voice_b64) > 8_000_000:
+        raise HTTPException(400, "Voice clip too large (keep < 2 min)")
+
+    msg = SupportMessage(
+        thread_id=thread_id, sender_id=user["id"], sender_role=user["role"],
+        kind=req.kind, text=req.text.strip(),
+        voice_b64=req.voice_b64, voice_duration_ms=req.voice_duration_ms,
+    )
+    await db.support_messages.insert_one(msg.dict())
+
+    upd = {"last_message_at": msg.created_at,
+           "last_message_preview": _preview_for(msg)}
+    if user["role"] == "customer":
+        upd["$inc"] = {"unread_for_agent": 1}
+    else:
+        upd["$inc"] = {"unread_for_customer": 1}
+    inc = upd.pop("$inc")
+    await db.support_threads.update_one({"id": thread_id},
+                                        {"$set": upd, "$inc": inc})
+    return msg.dict()
+
+
+@api.get("/support/unread")
+async def unread_count(user: dict = Depends(get_current_user)):
+    if user["role"] == "customer":
+        t = await db.support_threads.find_one({"customer_id": user["id"]}, {"_id": 0})
+        return {"unread": (t or {}).get("unread_for_customer", 0)}
+    if user["role"] in ("agent", "admin"):
+        threads = await db.support_threads.find({}, {"_id": 0}).to_list(2000)
+        return {"unread": sum(t.get("unread_for_agent", 0) for t in threads)}
+    return {"unread": 0}
+
+
 # ---------------------------------------------------------------------------
 @api.get("/")
 async def root():
-    return {"app": "home-tiffin", "status": "ok"}
-
-
-@api.get("/cutoff")
-async def cutoff_info(_: dict = Depends(get_current_user)):
-    now = _now_ist()
-    tomorrow = (_today_ist_date() + timedelta(days=1)).isoformat()
-    today_cutoff = datetime(now.year, now.month, now.day, CUTOFF_HOUR_LOCAL, 0, tzinfo=IST)
-    return {
-        "now_ist": now.isoformat(),
-        "today_cutoff_8pm_ist": today_cutoff.isoformat(),
-        "tomorrow_date": tomorrow,
-        "cutoff_passed_for_tomorrow": _cutoff_passed_for(tomorrow),
-    }
+    return {"app": "home-tiffin", "status": "ok", "city": "Chennai"}
 
 
 app.include_router(api)

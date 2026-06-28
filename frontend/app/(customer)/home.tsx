@@ -9,12 +9,12 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
-import { ordersApi, DailyOrder } from "@/src/lib/api";
+import { ordersApi, subsApi, DailyOrder, MealKey, Subscription } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
 import { colors, spacing, radius, shadow, DAY_NAMES_FULL } from "@/src/lib/theme";
 
 const HERO = "https://images.pexels.com/photos/35008222/pexels-photo-35008222.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940";
-const MEALS: ("breakfast" | "lunch" | "dinner")[] = ["breakfast", "lunch", "dinner"];
+const ALL_MEALS: MealKey[] = ["breakfast", "lunch", "dinner"];
 const MEAL_ICONS = { breakfast: "sunrise", lunch: "sun", dinner: "moon" } as const;
 
 function formatNice(dateStr: string) {
@@ -27,18 +27,20 @@ export default function CustomerHome() {
   const { user } = useAuth();
   const [today, setToday] = useState<DailyOrder | null>(null);
   const [tomorrow, setTomorrow] = useState<DailyOrder | null>(null);
+  const [sub, setSub] = useState<Subscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const upcoming = await ordersApi.upcoming();
+      const [upcoming, s] = await Promise.all([ordersApi.upcoming(), subsApi.me()]);
       const todayStr = new Date().toISOString().split("T")[0];
       const tomorrowDate = new Date();
       tomorrowDate.setDate(tomorrowDate.getDate() + 1);
       const tomStr = tomorrowDate.toISOString().split("T")[0];
       setToday(upcoming.find((o) => o.date === todayStr) || null);
       setTomorrow(upcoming.find((o) => o.date === tomStr) || null);
+      setSub(s);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -46,6 +48,8 @@ export default function CustomerHome() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const MEALS = sub ? ALL_MEALS.filter((m) => sub.meals.includes(m)) : ALL_MEALS;
 
   async function modify(orderId: string, meal: "breakfast" | "lunch" | "dinner",
                         patch: { enabled?: boolean; quantity?: number }) {

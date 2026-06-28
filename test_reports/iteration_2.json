@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 2 (onboarding + pincodes + agent + support chat) tested end-to-end. Backend: NEW suite test_onboarding_pincodes_support.py = 20/20 pass; regression test_api.py = 23 pass + 1 env-skip. Fixed 1 backend bug found during testing: POST /api/onboarding/complete returned 500 because pymongo's insert_one mutates the dict with a non-serializable ObjectId `_id`, which FastAPI then tried to jsonable_encode → ValueError. Patched server.py to pop _id before returning the subscription (server.py:551). Frontend: customer onboarding wizard fully exercised on the Expo web preview (390x844) — new phone → dev_otp banner → menu list → name → pincode (560001 shows the 'don't deliver yet' card, 600020 advances) → address → meal/members/plan → submit → lands on /home. Agent login (+919000000003) lands on /threads showing the Support Inbox with customer_name+phone+pincode joined fields. Both verified live against https://fresh-feast-app-1.preview.emergentagent.com.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/onboarding/complete", "issue": "FIXED during this run — was returning 500 due to ObjectId leaking into the response. server.py:551 now pops _id from sub_d before returning."},
+      {"endpoint": "JWT_SECRET", "issue": "Carried over from iter1 — JWT_SECRET <32 bytes triggers PyJWT InsecureKeyLengthWarning."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "StyleSheet shadow* props", "issue": "RN-Web deprecation 'shadow* style props are deprecated. Use boxShadow.' still emitted from /app/frontend/src/lib/theme.* (cosmetic, carried over from iter1)."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_onboarding_pincodes_support.py",
+    "/app/backend/tests/test_api.py",
+    "/app/test_reports/pytest/pytest_iter2.xml"
+  ],
+  "action_items": [
+    "(Already applied) Confirm the one-line fix in server.py L551 (sub_d.pop('_id', None)) is acceptable and keep — onboarding is unusable without it.",
+    "(Optional, carried) Bump JWT_SECRET length to >=32 bytes and migrate shadow* styles to boxShadow."
+  ],
+  "critical_code_review_comments": [
+    "server.py has grown to ~970 lines spanning auth + onboarding + pincodes + menu + orders + admin + delivery + support. Past the 700-line threshold — should be split into routers (auth, onboarding, pincodes, menu, orders, admin, delivery, support).",
+    "Multiple endpoints use the pattern `sub_d = sub.dict(); insert_one(sub_d); return sub_d`. Each is a potential ObjectId-leak. Suggest a small helper `await db.X.insert_one(doc); doc.pop('_id', None)` or use `find_one({...}, {'_id': 0})` after insert to be uniformly safe.",
+    "Frontend phone-input strips '+91' prefix client-side; testers must enter only the 10-digit national number. Consider trimming whitespace/leading + on the client to make UX more forgiving.",
+    "Login.tsx pre-fills the phone box with placeholder `98765 43210` — fine, but the validation message 'Enter a valid phone number' for the test pattern was helpful and caught a malformed input in my first UI run."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (popped _id from subscription return — line ~551)",
+    "/app/backend/tests/test_onboarding_pincodes_support.py (new, 20 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (20/20 new + 23/23 regression, 1 env-skip)",
+    "frontend": "100% on the critical onboarding + agent flows exercised"
+  },
+  "seed_data_creation": "Test-created users have phones in the +9199955xxxxx / +9199966xxxxx / +9199977xxxxx ranges (one per onboarding test) and a TEST_ prefix on names. Admin pincodes 699901 / 699902 / 699903 / 600050 / 600060 / 600070 may now be present (699903 deactivated by the delete test). 600050 area is 'Padi' from the bulk paste. Pre-existing seeded pincodes (18) and seeded users (admin, delivery, agent, 3 customers) are untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend URL: https://fresh-feast-app-1.preview.emergentagent.com (also exported in frontend/.env as EXPO_PUBLIC_BACKEND_URL). All APIs under /api. To re-run full backend regression: `pytest /app/backend/tests/ -v --junitxml=/app/test_reports/pytest/pytest_results.xml`. NOTE: today is Sunday IST → 'cutoff-passed' test in test_api.py skips (expected). NEW onboarding suite is in test_onboarding_pincodes_support.py — does not need any seed prep, it creates its own fresh customers per test. Agent role lands on /threads (not /home). Voice chat is tested via small base64 payload (browser mic not used per spec)."
+}
