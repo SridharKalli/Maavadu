@@ -59,6 +59,14 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
     if not user:
         raise HTTPException(401, "User not found")
+    # Lightweight presence tracking. Fire-and-forget update.
+    try:
+        now_utc = datetime.now(timezone.utc)
+        await db.users.update_one({"id": user["id"]},
+                                  {"$set": {"last_seen_at": now_utc}})
+        user["last_seen_at"] = now_utc
+    except Exception:  # noqa: BLE001
+        pass
     return user
 
 

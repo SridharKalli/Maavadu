@@ -84,7 +84,7 @@ class TestSupportMetricsFlow:
         )
         assert r.status_code == 200, r.text
         cust_msg_id = r.json()["id"]
-        cust_created_at = r.json()["created_at"]
+        _ = r.json()["created_at"]  # noqa: F841
 
         # 4. stats: tickets +1, open >= 1
         r1 = api_client.get(f"{BASE_URL}/api/admin/stats",

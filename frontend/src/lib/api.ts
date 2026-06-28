@@ -196,6 +196,7 @@ export interface SupportThread {
   last_message_at: string; last_message_preview: string;
   unread_for_customer: number; unread_for_agent: number;
   customer_name?: string; customer_phone?: string; customer_pincode?: string;
+  customer_last_seen?: string;
 }
 export interface SupportMessage {
   id: string; thread_id: string;
@@ -209,6 +210,12 @@ export const supportApi = {
   contact: () =>
     api<{ name: string; phone: string; available: string }>("/support/contact"),
   listThreads: () => api<SupportThread[]>("/support/threads"),
+  customers: () =>
+    api<(User & { thread_id?: string; last_seen_at?: string })[]>(
+      "/support/customers"),
+  startThread: (customerId: string) =>
+    api<SupportThread>(`/support/start?customer_id=${customerId}`,
+      { method: "POST" }),
   messages: (threadId: string) =>
     api<SupportMessage[]>(`/support/threads/${threadId}/messages`),
   send: (threadId: string,

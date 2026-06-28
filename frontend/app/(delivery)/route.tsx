@@ -13,6 +13,20 @@ import { colors, spacing, radius, shadow } from "@/src/lib/theme";
 
 const MEALS: ("breakfast" | "lunch" | "dinner")[] = ["breakfast", "lunch", "dinner"];
 
+function nextNDates(n: number): { iso: string; label: string; isHoliday: boolean }[] {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() + i);
+    const iso = d.toISOString().split("T")[0];
+    const label = i === 0 ? "Today"
+      : i === 1 ? "Tomorrow"
+      : d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric" });
+    out.push({ iso, label, isHoliday: d.getDay() === 0 });
+  }
+  return out;
+}
+
 export default function DeliveryRoute() {
   const { user } = useAuth();
   const [orders, setOrders] = useState<DailyOrder[]>([]);
@@ -20,11 +34,14 @@ export default function DeliveryRoute() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [tab, setTab] = useState<"deliveries" | "pickups">("deliveries");
+  const [selectedDate, setSelectedDate] = useState<string>(
+    new Date().toISOString().split("T")[0]);
+  const dates = nextNDates(7);
 
   const load = useCallback(async () => {
     try {
       const [r, p] = await Promise.all([
-        deliveryApi.route(),
+        deliveryApi.route(selectedDate),
         deliveryApi.pickups(),
       ]);
       setOrders(r);
@@ -33,7 +50,7 @@ export default function DeliveryRoute() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [selectedDate]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -71,7 +88,7 @@ export default function DeliveryRoute() {
     <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.header}>
         <Text style={styles.greet}>Hello, {user?.name?.split(" ")[0] || "partner"}</Text>
-        <Text style={styles.title}>Today's Route</Text>
+        <Text style={styles.title}>Today&apos;s Route</Text>
         <View style={styles.progressRow}>
           <View style={styles.progressBar}>
             <View style={[styles.progressFill,
@@ -81,6 +98,33 @@ export default function DeliveryRoute() {
             {done}/{orders.length} delivered
           </Text>
         </View>
+
+        {/* Date selector */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.dateRow}>
+          {dates.map((d) => {
+            const active = selectedDate === d.iso;
+            return (
+              <Pressable
+                key={d.iso}
+                testID={`date-${d.iso}`}
+                onPress={() => { setSelectedDate(d.iso); setLoading(true); }}
+                style={[styles.dateChip, active && styles.dateChipActive]}
+              >
+                <Text style={[styles.dateLabel,
+                  active && { color: colors.onBrand }]}>
+                  {d.label}
+                </Text>
+                {d.isHoliday && (
+                  <Text style={[styles.dateHoliday,
+                    active && { color: colors.onBrand }]}>
+                    Holiday
+                  </Text>
+                )}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
 
         {/* Tabs — chip row */}
         <View style={styles.tabs}>
@@ -133,7 +177,7 @@ export default function DeliveryRoute() {
               <View style={styles.banner}>
                 <Feather name="info" size={16} color={colors.warning} />
                 <Text style={styles.bannerText}>
-                  Collect these hotboxes before delivering today's order.
+                  Collect these hotboxes before delivering today&apos;s order.
                 </Text>
               </View>
               {pickups.map((p, idx) => (
@@ -285,6 +329,19 @@ const styles = StyleSheet.create({
   progressText: { fontSize: 12, color: colors.onSurface, fontWeight: "700" },
 
   tabs: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
+
+  dateRow: { gap: spacing.sm, paddingVertical: spacing.sm },
+  dateChip: {
+    paddingHorizontal: spacing.md, paddingVertical: 8,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1, borderColor: colors.border,
+    alignItems: "center",
+  },
+  dateChipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
+  dateLabel: { fontSize: 13, fontWeight: "700", color: colors.onSurface },
+  dateHoliday: { fontSize: 9, fontWeight: "700", color: colors.warning,
+                 marginTop: 1, letterSpacing: 0.3 },
   tab: {
     flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 6,
     paddingHorizontal: spacing.md, paddingVertical: 8,

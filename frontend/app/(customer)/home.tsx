@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   View, Text, StyleSheet, ScrollView, RefreshControl, Pressable,
-  ActivityIndicator, Modal, Linking,
+  ActivityIndicator, Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
@@ -11,8 +11,8 @@ import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 
 import {
-  ordersApi, walletApi, supportApi, DailyOrder, MealKey, WalletInfo, OrderMeal,
-  SizeKey, LunchVariant, PricingGrid,
+  ordersApi, walletApi, subsApi, DailyOrder, MealKey, WalletInfo,
+  OrderMeal, SizeKey, LunchVariant, PricingGrid,
 } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
 import { colors, spacing, radius, shadow, DAY_NAMES_FULL } from "@/src/lib/theme";
@@ -61,8 +61,6 @@ export default function CustomerHome() {
   const [today, setToday] = useState<DailyOrder | null>(null);
   const [tomorrow, setTomorrow] = useState<DailyOrder | null>(null);
   const [wallet, setWallet] = useState<WalletInfo | null>(null);
-  const [contact, setContact] = useState<{ name: string; phone: string;
-    available: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [pending, setPending] = useState<PendingChange | null>(null);
@@ -70,9 +68,8 @@ export default function CustomerHome() {
 
   const load = useCallback(async () => {
     try {
-      const [upcoming, w, c] = await Promise.all([
+      const [upcoming, w] = await Promise.all([
         ordersApi.upcoming(), walletApi.me(),
-        supportApi.contact().catch(() => null),
       ]);
       const todayStr = new Date().toISOString().split("T")[0];
       const tomorrowDate = new Date();
@@ -81,7 +78,6 @@ export default function CustomerHome() {
       setToday(upcoming.find((o) => o.date === todayStr) || null);
       setTomorrow(upcoming.find((o) => o.date === tomStr) || null);
       setWallet(w);
-      setContact(c);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -96,6 +92,22 @@ export default function CustomerHome() {
         ? ALL_MEALS.filter((m) => today[m].item_name || today[m].enabled)
         : ALL_MEALS);
   const MEALS = subscribedMeals.length > 0 ? subscribedMeals : ALL_MEALS;
+
+  // Meals NOT in the customer's subscription — drive upsell.
+  const missing: MealKey[] = ALL_MEALS.filter((m) => !subscribedMeals.includes(m));
+
+  async function addMealToPlan(m: MealKey) {
+    Haptics.selectionAsync();
+    try {
+      const sub = await subsApi.me();
+      const current = sub?.meals || subscribedMeals;
+      await subsApi.update({ meals: Array.from(new Set([...current, m])) });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      load();
+    } catch {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  }
 
   function requestSize(orderId: string, meal: MealKey,
                        from: SegKey, to: SegKey) {
@@ -188,28 +200,6 @@ export default function CustomerHome() {
         </View>
 
         <View style={styles.body}>
-          {/* Support contact card */}
-          {contact && contact.phone && (
-            <Pressable
-              testID="support-contact-card"
-              onPress={() => Linking.openURL(`tel:${contact.phone}`)
-                .catch(() => router.push("/(customer)/support"))}
-              style={styles.contactCard}
-            >
-              <View style={styles.contactIcon}>
-                <Feather name="phone" size={18} color={colors.onBrand} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.contactName}>Need help? Call {contact.name.split(" ")[0]}</Text>
-                <Text testID="support-contact-phone" style={styles.contactPhone}>
-                  {contact.phone}
-                </Text>
-                <Text style={styles.contactHours}>{contact.available}</Text>
-              </View>
-              <Feather name="chevron-right" size={18} color={colors.onSurfaceMuted} />
-            </Pressable>
-          )}
-
           {/* WALLET BANNER */}
           {wallet && (
             <Pressable
@@ -288,6 +278,51 @@ export default function CustomerHome() {
             <View style={[styles.card, styles.empty]}>
               <Feather name="coffee" size={28} color={colors.onSurfaceMuted} />
               <Text style={styles.emptyText}>No meals today — enjoy your holiday!</Text>
+            </View>
+          )}
+
+          {/* UPSELL — meals not yet in their plan */}
+          {missing.length > 0 && pricing && (
+            <View style={styles.upsellWrap} testID="upsell-card">
+              <Text style={styles.upsellTitle}>
+                Add more meals to your tiffin 🍽️
+              </Text>
+              <Text style={styles.upsellSub}>
+                Save a trip to the kitchen — let us cook these too.
+              </Text>
+              {missing.map((m) => {
+                const todayItem = today?.[m]?.item_name
+                  || tomorrow?.[m]?.item_name || "Chef's surprise";
+                const price = priceFor(m,
+                  (tomorrow ? mealCurrentSeg(tomorrow[m]) : "single") as SizeKey
+                    === "skip" ? "single"
+                    : (tomorrow ? mealCurrentSeg(tomorrow[m]) : "single") as SizeKey,
+                  (tomorrow?.[m]?.lunch_variant as LunchVariant) || "with_rice",
+                  pricing);
+                return (
+                  <View key={m} style={styles.upsellRow} testID={`upsell-${m}`}>
+                    <Feather name={MEAL_ICONS[m]} size={22}
+                      color={colors.brand} />
+                    <View style={{ flex: 1, marginLeft: spacing.md }}>
+                      <Text style={styles.upsellMeal}>{m.toUpperCase()}</Text>
+                      <Text style={styles.upsellItem} numberOfLines={2}>
+                        {todayItem}
+                      </Text>
+                      <Text style={styles.upsellPrice}>
+                        from ₹{price > 0 ? price : pricing[m === "lunch"
+                          ? "lunch_with_rice" : m].single}/meal
+                      </Text>
+                    </View>
+                    <Pressable
+                      testID={`upsell-add-${m}`}
+                      onPress={() => addMealToPlan(m)}
+                      style={styles.upsellCta}>
+                      <Feather name="plus" size={14} color={colors.onBrand} />
+                      <Text style={styles.upsellCtaText}>Add</Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
             </View>
           )}
 
@@ -415,7 +450,7 @@ export default function CustomerHome() {
           {/* PRICING (bottom of home) */}
           {pricing && (
             <>
-              <Text style={styles.section}>Per-meal pricing</Text>
+              <Text style={styles.section}>Homely Meals at Affordable Cost</Text>
               <View style={styles.priceCard} testID="home-pricing-card">
                 <View style={styles.priceHeaderRow}>
                   <Text style={[styles.priceMeal, { flex: 1.2 }]}>Meal</Text>
@@ -613,6 +648,29 @@ const styles = StyleSheet.create({
 
   empty: { alignItems: "center", paddingVertical: spacing.xl, gap: spacing.sm },
   emptyText: { color: colors.onSurfaceMuted, fontSize: 14, textAlign: "center" },
+
+  upsellWrap: {
+    backgroundColor: "#FFF7E5", borderRadius: radius.lg,
+    padding: spacing.lg, marginTop: spacing.lg,
+    borderWidth: 1, borderColor: "#F5D58B", ...shadow.card,
+  },
+  upsellTitle: { fontSize: 16, fontWeight: "700", color: colors.onSurface,
+                 letterSpacing: -0.3 },
+  upsellSub: { fontSize: 12, color: colors.onSurfaceMuted,
+               marginTop: 2, marginBottom: spacing.md },
+  upsellRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm,
+               backgroundColor: colors.surface, borderRadius: radius.md,
+               padding: spacing.md, marginBottom: spacing.sm },
+  upsellMeal: { fontSize: 10, fontWeight: "700", color: colors.brand,
+                letterSpacing: 0.5 },
+  upsellItem: { fontSize: 14, fontWeight: "600", color: colors.onSurface,
+                marginTop: 2 },
+  upsellPrice: { fontSize: 11, color: colors.onSurfaceMuted, marginTop: 4,
+                 fontWeight: "600" },
+  upsellCta: { flexDirection: "row", alignItems: "center", gap: 4,
+               backgroundColor: colors.brand, paddingHorizontal: spacing.md,
+               paddingVertical: 8, borderRadius: radius.pill },
+  upsellCtaText: { color: colors.onBrand, fontWeight: "700", fontSize: 13 },
 
   cutoffBanner: {
     flexDirection: "row", alignItems: "center", gap: spacing.sm,

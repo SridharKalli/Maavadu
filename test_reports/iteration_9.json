@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 9 - backend additions verified: GET /api/support/customers, POST /api/support/start (idempotent), and presence bump on every authenticated request all behave per spec. Wrote /app/backend/tests/test_iter9_support_roster.py (11 new tests, all PASS). Full backend suite: 57/57 PASS (46 prior + 11 new) once a stale delivered=True flag on tomorrow's order was cleared. Frontend UI: Sharma home no longer renders testID='support-contact-card' (verified absent) and the bottom pricing block correctly carries the 'Homely Meals at Affordable Cost' header (case-insensitive substring match found in body text). Customer Support tab renders testID='support-call-card' with testID='support-call-phone' = '+919000000003' and the ChatPanel with a working chat-input. Delivery route renders the horizontal date row with testID='date-<YYYY-MM-DD>' chips; backend /api/delivery/route?date=<tomorrow> returns rows for Monday even though today is Sunday in the test container. Agent threads screen has testID='agent-new-chat', the picker modal opens with testID='agent-search', and pick rows render presence labels ('Online now'/'Active recently') backed by users.last_seen_at. One bug found below.\n\nBUG FOUND (frontend): the upsell-card flow on customer home FAILS to render even when the subscription only has a subset of meals. After PATCH /api/subscriptions/me with meals=['dinner'], the cascade in routers/subscriptions.py correctly sets tomorrow's breakfast.enabled=false and lunch.enabled=false BUT preserves the original item_name ('Poha', 'Sambar Rice ...') because the cascade only flips enabled/quantity. The frontend computes subscribedMeals via ALL_MEALS.filter((m) => tomorrow[m].item_name || tomorrow[m].enabled) at home.tsx:90 -- this OR-clause keeps breakfast & lunch in the 'subscribed' set whenever item_name is non-empty, so the missing[] array is empty and testID='upsell-card' / testID='upsell-breakfast' / testID='upsell-lunch' are never rendered. Repro: confirmed both via direct Mongo inspection (breakfast.enabled=False, item_name='Poha') AND via UI screenshot showing the home screen with no upsell card despite Sharma's subscription.meals = ['dinner']. Fix: change the filter to use only tomorrow[m].enabled, OR fetch subsApi.me() and use sub.meals as the source of truth.\n\nAlso noted: a stale `delivered=True` flag on a tomorrow-dated order persisted across test runs (carried over by an earlier delivery test). seed.py's self-heal clears these only on backend startup, so a long-lived backend process accumulates stale flags. After clearing manually (and after a backend restart), the iter7 cascade test went green again. Recommendation: make the cascade in routers/subscriptions.py:50 reshape *all* upcoming orders (drop the `delivered: False` filter for future-dated docs OR include `date > today AND delivered=True` with reset), so plan changes always cascade even if a test marked tomorrow delivered.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PATCH /api/subscriptions/me", "issue": "Cascade only updates orders matching {delivered: False}; if a stale delivered=True flag exists on a future-dated order (e.g. carried over from a prior delivery test before seed self-heal ran), tomorrow's order is not reshaped. Consider relaxing the filter for future-dated rows or running the self-heal at the start of every PATCH. Reference: /app/backend/routers/subscriptions.py:49-52."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CustomerHome upsell-card", "issue": "subscribedMeals filter uses `tomorrow[m].item_name || tomorrow[m].enabled` which keeps disabled meals in the subscribed set because the backend cascade preserves item_name. Result: testID='upsell-card', testID='upsell-breakfast' and testID='upsell-lunch' never render even when the subscription has only meals=['dinner']. Reference: /app/frontend/app/(customer)/home.tsx:89-94.", "testID": "upsell-card", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter9_support_roster.py (NEW - 11 tests, all PASS)",
+    "/app/test_reports/pytest/pytest_iter9.xml"
+  ],
+  "action_items": [
+    "Fix upsell-card source of truth: change /app/frontend/app/(customer)/home.tsx:89-94 to compute subscribedMeals from sub.meals (via subsApi.me) or from tomorrow[m].enabled alone -- do NOT OR with item_name (cascade keeps item_name intact). Without this fix, the upsell flow never appears for customers who have removed meals from their plan.",
+    "(Optional but recommended) In /app/backend/routers/subscriptions.py:49-52, drop the `delivered: False` filter for future-dated orders -- the only orders that should remain frozen are past/today's orders that already delivered. Future-dated rows with stale delivered=True should still be cascade-reshaped.",
+    "(Carried over from iter 8) Replace shadow* style props with boxShadow and any props.pointerEvents usage with style.pointerEvents to silence RN-Web warnings."
+  ],
+  "critical_code_review_comments": [
+    "routers/support.py: new /support/customers and /support/start endpoints are clean -- require_role('agent','admin'), _id excluded, idempotent thread create via get_or_create_thread. Good.",
+    "helpers.get_current_user now bumps users.last_seen_at on every authenticated request inside a try/except so a Mongo blip cannot break auth. Excellent defensive coding.",
+    "(delivery)/route.tsx: nextNDates correctly computes 7 chips with Today/Tomorrow labels; date-<iso> testIDs match the spec. Re-fetches via deliveryApi.route(selectedDate) inside useEffect([selectedDate]) -- clean.",
+    "(agent)/threads.tsx: presenceLabel ladder (60s/300s/3600s/86400s) is correct; onlineDot only renders when label === 'Online now'. The 'starting' guard prevents double-tap from creating concurrent threads. Good.",
+    "(customer)/support.tsx: ChatPanel mounted under SafeAreaView top edge only, call-card uses tel: scheme via Linking. Clean."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter9_support_roster.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (57/57 pytest, 11 new + 46 prior)",
+    "frontend": "85% (Sharma home no-support / pricing header / Support call-card / chat-input / delivery date chip rendering / agent new-chat picker / presence label all verified; upsell flow FAILS due to the bug above)"
+  },
+  "seed_data_creation": "test_iter9_support_roster.py's agent->Iyer test inserts one support_message into Iyer's thread and cleans it up via direct Mongo delete_many in the same test. No persistent residue. A QA UI test also sent 'Hello from agent QA UI' into Iyer's thread that was NOT cleaned up; main agent may wish to prune it (db.support_messages.delete_many({text: {'$regex': 'Hello from agent QA UI'}})).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend dev OTP at POST /api/auth/send-otp response.dev_otp. The new GET /api/support/customers returns a customer roster with thread_id (string when a thread exists, omitted otherwise) and last_seen_at (ISO datetime as long as that customer has logged in once since the most-recent backend boot). POST /api/support/start?customer_id=<id> is idempotent. Presence is bumped inside helpers.get_current_user on every authenticated request. WATCH OUT: stale delivered=True on a tomorrow-dated order will silently block cascade tests (iter7 test_subscription_default_size_family_reshapes_tomorrow); a backend restart (or manual update_many) flushes via seed.py self-heal. AsyncStorage on web uses IndexedDB (database name RKStorage), NOT localStorage -- so the only reliable Playwright auth path is the UI flow (phone-input -> send-otp-button -> dev-otp-code -> otp-input -> verify-otp-button).",
+  "rca_of_issue": "BUG: upsell-card never renders.\n\nReproduction:\n1. Login as Sharma.\n2. PATCH /api/subscriptions/me with {meals:['dinner']}. Backend cascade (subscriptions.py:58-74) correctly flips tomorrow.breakfast.enabled=False and tomorrow.lunch.enabled=False (verified via Mongo).\n3. Reload customer home. Expected: testID='upsell-card' visible with rows for breakfast & lunch. Actual: no upsell-card.\n\nRoot cause: /app/frontend/app/(customer)/home.tsx:89-94 builds subscribedMeals as:\n  ALL_MEALS.filter((m) => tomorrow[m].item_name || tomorrow[m].enabled)\nThe cascade preserves item_name when disabling a meal (so the menu copy stays available for the 'today/tomorrow plan' rows), so item_name='Poha' keeps breakfast in subscribedMeals and missing[] stays empty. The upsell block is gated on missing.length > 0 (line 285), so it never mounts.\n\nMitigation: replace the OR with just .enabled, or pull the truth from subsApi.me().meals via a useEffect-fetched local state. Both options are 1-line changes."
+}

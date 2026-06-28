@@ -39,7 +39,32 @@ async def list_threads(_: dict = Depends(require_role("agent", "admin"))):
         t["customer_name"] = u.get("name", "")
         t["customer_phone"] = u.get("phone", "")
         t["customer_pincode"] = u.get("pincode", "")
+        t["customer_last_seen"] = u.get("last_seen_at")
     return threads
+
+
+@router.get("/support/customers")
+async def support_customers(_: dict = Depends(require_role("agent", "admin"))):
+    """Customer roster for agents — includes last-seen and existing thread id
+    so the agent can start a new conversation with anyone."""
+    customers = await db.users.find(
+        {"role": "customer"}, {"_id": 0}).sort("name", 1).to_list(2000)
+    threads = await db.support_threads.find({}, {"_id": 0}).to_list(2000)
+    tmap = {t["customer_id"]: t["id"] for t in threads}
+    for c in customers:
+        c["thread_id"] = tmap.get(c["id"])
+    return customers
+
+
+@router.post("/support/start")
+async def start_thread(customer_id: str,
+                       _: dict = Depends(require_role("agent", "admin"))):
+    """Idempotent — returns the existing thread or creates a new one for
+    the given customer so the agent can drop the first message."""
+    customer = await db.users.find_one({"id": customer_id}, {"_id": 0})
+    if not customer or customer.get("role") != "customer":
+        raise HTTPException(404, "Customer not found")
+    return await get_or_create_thread(customer_id)
 
 
 @router.get("/support/threads/{thread_id}/messages")
