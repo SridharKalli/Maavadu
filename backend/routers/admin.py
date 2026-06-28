@@ -85,7 +85,8 @@ async def _support_metrics(today_start_utc: datetime) -> dict:
         else:
             open_count += 1
 
-    avg = int(sum(deltas) / len(deltas)) if deltas else 0
+    # Round up so sub-second auto-replies still surface as 1s instead of 0.
+    avg = (int(-(-sum(deltas) / len(deltas) // 1)) if deltas else 0)
     return {"tickets": len(cust_msgs), "open": open_count,
             "avg_response_seconds": avg}
 
