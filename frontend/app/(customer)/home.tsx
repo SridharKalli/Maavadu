@@ -11,7 +11,7 @@ import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 
 import {
-  ordersApi, subsApi, DailyOrder, MealKey, Subscription, OrderMeal,
+  ordersApi, walletApi, DailyOrder, MealKey, WalletInfo, OrderMeal,
 } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
 import { colors, spacing, radius, shadow, DAY_NAMES_FULL } from "@/src/lib/theme";
@@ -52,20 +52,20 @@ export default function CustomerHome() {
   const router = useRouter();
   const [today, setToday] = useState<DailyOrder | null>(null);
   const [tomorrow, setTomorrow] = useState<DailyOrder | null>(null);
-  const [sub, setSub] = useState<Subscription | null>(null);
+  const [wallet, setWallet] = useState<WalletInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [upcoming, s] = await Promise.all([ordersApi.upcoming(), subsApi.me()]);
+      const [upcoming, w] = await Promise.all([ordersApi.upcoming(), walletApi.me()]);
       const todayStr = new Date().toISOString().split("T")[0];
       const tomorrowDate = new Date();
       tomorrowDate.setDate(tomorrowDate.getDate() + 1);
       const tomStr = tomorrowDate.toISOString().split("T")[0];
       setToday(upcoming.find((o) => o.date === todayStr) || null);
       setTomorrow(upcoming.find((o) => o.date === tomStr) || null);
-      setSub(s);
+      setWallet(w);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -74,7 +74,14 @@ export default function CustomerHome() {
 
   useEffect(() => { load(); }, [load]);
 
-  const MEALS = sub ? ALL_MEALS.filter((m) => sub.meals.includes(m)) : ALL_MEALS;
+  // MEALS: derive from upcoming orders so we still hide breakfast etc. if
+  // not subscribed. Falls back to all meals while loading.
+  const subscribedMeals: MealKey[] = tomorrow
+    ? ALL_MEALS.filter((m) => tomorrow[m].item_name || tomorrow[m].enabled)
+    : (today
+        ? ALL_MEALS.filter((m) => today[m].item_name || today[m].enabled)
+        : ALL_MEALS);
+  const MEALS = subscribedMeals.length > 0 ? subscribedMeals : ALL_MEALS;
 
   async function setSize(orderId: string, meal: MealKey, size: SizeKey) {
     const opt = SIZE_OPTIONS.find((o) => o.key === size)!;
@@ -92,8 +99,7 @@ export default function CustomerHome() {
     return <View style={styles.center}><ActivityIndicator color={colors.brand} /></View>;
   }
 
-  const daysLeft = sub ? daysUntil(sub.end_date) : 0;
-  const endsSoon = daysLeft <= 5;
+  const lowBalance = wallet?.low === true;
 
   return (
     <View style={styles.screen}>
@@ -119,41 +125,49 @@ export default function CustomerHome() {
         </View>
 
         <View style={styles.body}>
-          {/* SUBSCRIPTION BANNER */}
-          {sub && (
-            <View style={[styles.subCard, endsSoon && styles.subCardWarn]}
-              testID="subscription-banner">
-              <View style={styles.subTop}>
-                <View style={styles.subBadge}>
-                  <Text style={styles.subBadgeText}>
-                    {PLAN_LABEL[sub.plan_type]}
+          {/* WALLET BANNER */}
+          {wallet && (
+            <Pressable
+              testID="wallet-banner"
+              onPress={() => router.push("/(customer)/wallet")}
+              style={[styles.subCard, lowBalance && styles.subCardWarn]}
+            >
+              <View style={styles.walletTopRow}>
+                <View>
+                  <Text style={styles.walletLabel}>Wallet balance</Text>
+                  <Text
+                    testID="wallet-balance"
+                    style={[styles.walletBalance,
+                      lowBalance && { color: colors.error }]}
+                  >
+                    ₹{wallet.balance.toFixed(0)}
                   </Text>
                 </View>
-                <Text style={styles.subMeals}>
-                  {sub.meals.map((m) => m[0].toUpperCase() + m.slice(1)).join(" · ")}
-                </Text>
+                <View style={styles.walletMeta}>
+                  <Text style={styles.walletMetaLabel}>
+                    {wallet.daily_burn > 0 ? `≈ ${wallet.days_left} days` : "—"}
+                  </Text>
+                  <Text style={styles.walletMetaSub}>
+                    at ₹{wallet.daily_burn.toFixed(0)}/day
+                  </Text>
+                </View>
               </View>
-              <Text style={[styles.subEnd, endsSoon && { color: colors.error }]}
-                testID="subscription-end-date">
-                {daysLeft > 0
-                  ? <>Active till <Text style={{ fontWeight: "700" }}>
-                      {formatNice(sub.end_date)}</Text>{" "}
-                    ({daysLeft} day{daysLeft !== 1 ? "s" : ""} left)</>
-                  : <Text style={{ fontWeight: "700", color: colors.error }}>
-                      Subscription expired
-                    </Text>}
-              </Text>
-              {endsSoon && (
-                <Pressable
-                  testID="renew-cta"
-                  style={styles.renewBtn}
-                  onPress={() => router.push("/(customer)/support")}
-                >
-                  <Feather name="message-circle" size={16} color={colors.onBrand} />
-                  <Text style={styles.renewText}>Chat with us to renew</Text>
-                </Pressable>
+              {lowBalance && (
+                <View style={styles.lowBalanceRow} testID="low-balance-row">
+                  <Feather name="alert-circle" size={14} color={colors.error} />
+                  <Text style={styles.lowBalanceText}>
+                    Balance is low. Top up to keep meals coming.
+                  </Text>
+                </View>
               )}
-            </View>
+              <View style={styles.walletCtaRow}>
+                <Text style={styles.walletCtaText}>
+                  Tap to top up & view history
+                </Text>
+                <Feather name="chevron-right" size={16}
+                  color={lowBalance ? colors.error : colors.brand} />
+              </View>
+            </Pressable>
           )}
 
           {/* TODAY */}
@@ -305,26 +319,27 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4, borderLeftColor: colors.brand,
   },
   subCardWarn: { borderLeftColor: colors.error },
-  subTop: { flexDirection: "row", alignItems: "center", gap: spacing.sm,
-            marginBottom: spacing.xs },
-  subBadge: {
-    backgroundColor: colors.brand,
-    paddingHorizontal: spacing.sm, paddingVertical: 4,
-    borderRadius: radius.pill,
+
+  walletTopRow: { flexDirection: "row", justifyContent: "space-between",
+                  alignItems: "flex-end" },
+  walletLabel: { fontSize: 11, color: colors.onSurfaceMuted, fontWeight: "700",
+                 letterSpacing: 0.5, textTransform: "uppercase" },
+  walletBalance: { fontSize: 32, fontWeight: "700", color: colors.onSurface,
+                   letterSpacing: -0.5, marginTop: 2 },
+  walletMeta: { alignItems: "flex-end" },
+  walletMetaLabel: { fontSize: 14, fontWeight: "700", color: colors.onSurface },
+  walletMetaSub: { fontSize: 11, color: colors.onSurfaceMuted },
+  lowBalanceRow: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    marginTop: spacing.sm, padding: spacing.sm,
+    backgroundColor: "#FBE9E9", borderRadius: radius.sm,
   },
-  subBadgeText: { color: colors.onBrand, fontWeight: "700", fontSize: 11,
-                  letterSpacing: 0.5 },
-  subMeals: { color: colors.onSurfaceMuted, fontSize: 12, fontWeight: "600",
-              flex: 1 },
-  subEnd: { color: colors.onSurface, fontSize: 14, lineHeight: 20 },
-  renewBtn: {
-    marginTop: spacing.md,
-    flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: spacing.xs, backgroundColor: colors.brand,
-    paddingVertical: 10, borderRadius: radius.md,
+  lowBalanceText: { color: colors.error, fontSize: 12, fontWeight: "600", flex: 1 },
+  walletCtaRow: {
+    marginTop: spacing.sm, flexDirection: "row", alignItems: "center",
+    justifyContent: "space-between",
   },
-  renewText: { color: colors.onBrand, fontWeight: "700", fontSize: 13,
-               letterSpacing: 0.3 },
+  walletCtaText: { color: colors.brand, fontSize: 12, fontWeight: "700" },
 
   section: { fontSize: 14, fontWeight: "700", color: colors.onSurfaceMuted,
              letterSpacing: 0.5, marginBottom: spacing.sm, marginTop: spacing.xl,

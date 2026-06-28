@@ -31,6 +31,9 @@ export default function CustomerLayout() {
         title: "Support",
         tabBarIcon: ({ color }) => <Feather name="message-circle" size={22} color={color} />,
       }} />
+      <Tabs.Screen name="wallet" options={{
+        href: null,  // accessed via Home banner, not a tab
+      }} />
       <Tabs.Screen name="profile" options={{
         title: "Profile",
         tabBarIcon: ({ color }) => <Feather name="user" size={22} color={color} />,

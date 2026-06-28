@@ -62,7 +62,27 @@ class User(BaseModel):
     pincode: str = ""
     notes: str = ""
     onboarded: bool = False
+    wallet_balance: float = 0.0
+    wallet_threshold: float = 500.0
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class WalletTxn(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    type: Literal["credit", "debit"] = "credit"
+    amount: float
+    balance_after: float
+    reason: str = ""
+    ref_order_id: Optional[str] = None
+    by_user_id: Optional[str] = None  # who performed the txn (admin/agent)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class Pricing(BaseModel):
+    breakfast: float = 60.0
+    lunch: float = 120.0
+    dinner: float = 120.0
 
 
 class Pincode(BaseModel):
@@ -206,6 +226,21 @@ class SendMessageReq(BaseModel):
     voice_duration_ms: int = 0
 
 
+class CreditWalletReq(BaseModel):
+    amount: float
+    reason: str = "Top-up"
+
+
+class TopupRequestReq(BaseModel):
+    amount: float
+
+
+class UpdatePricingReq(BaseModel):
+    breakfast: Optional[float] = None
+    lunch: Optional[float] = None
+    dinner: Optional[float] = None
+
+
 # Helpers -------------------------------------------------------------------
 def _now_ist() -> datetime:
     return datetime.now(IST)
@@ -249,6 +284,60 @@ def _cutoff_passed_for(target_date_str: str) -> bool:
     cutoff_dt = datetime(cutoff_day.year, cutoff_day.month, cutoff_day.day,
                          CUTOFF_HOUR_LOCAL, 0, 0, tzinfo=IST)
     return _now_ist() >= cutoff_dt
+
+
+async def _get_pricing() -> dict:
+    p = await db.pricing.find_one({"_id": "current"})
+    if not p:
+        defaults = Pricing().dict()
+        defaults["_id"] = "current"
+        await db.pricing.insert_one(defaults)
+        return Pricing().dict()
+    p.pop("_id", None)
+    return p
+
+
+async def _record_wallet_txn(user_id: str, ttype: str, amount: float,
+                             reason: str, ref_order_id: Optional[str] = None,
+                             by_user_id: Optional[str] = None) -> dict:
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(404, "user not found")
+    delta = amount if ttype == "credit" else -amount
+    new_bal = round(float(user.get("wallet_balance", 0.0)) + delta, 2)
+    await db.users.update_one({"id": user_id},
+                              {"$set": {"wallet_balance": new_bal}})
+    txn = WalletTxn(user_id=user_id, type=ttype, amount=amount,
+                    balance_after=new_bal, reason=reason,
+                    ref_order_id=ref_order_id, by_user_id=by_user_id)
+    await db.wallet_txns.insert_one(txn.dict())
+    return {"balance": new_bal, "txn": txn.dict()}
+
+
+async def _debit_for_order(order: dict, by_user_id: str) -> None:
+    """Debit the customer's wallet for what was actually delivered."""
+    # Idempotency: if a debit txn already exists for this order, skip.
+    existing = await db.wallet_txns.find_one(
+        {"ref_order_id": order["id"], "type": "debit"}, {"_id": 0})
+    if existing:
+        return
+    pricing = await _get_pricing()
+    total = 0.0
+    parts = []
+    for m in ("breakfast", "lunch", "dinner"):
+        meal = order.get(m, {})
+        if meal.get("enabled") and meal.get("quantity", 0) > 0:
+            cost = float(pricing[m]) * int(meal["quantity"])
+            total += cost
+            parts.append(f"{m[:3]} ×{meal['quantity']} ₹{int(cost)}")
+    if total <= 0:
+        return
+    reason = f"Delivery {order['date']}: " + " · ".join(parts)
+    await _record_wallet_txn(order["user_id"], "debit", round(total, 2),
+                             reason, ref_order_id=order["id"],
+                             by_user_id=by_user_id)
+
+
 
 
 async def _generate_orders_for_subscription(sub: dict) -> int:
@@ -360,13 +449,16 @@ SEED_USERS = [
      "address": "Customer Care, Chennai", "pincode": "600004", "onboarded": True},
     {"phone": "+919999911111", "name": "Sharma Family", "role": "customer",
      "address": "Flat 302, Green Acres, Adyar, Chennai",
-     "pincode": "600020", "notes": "Ring twice", "onboarded": True},
+     "pincode": "600020", "notes": "Ring twice", "onboarded": True,
+     "wallet_balance": 2840.0},
     {"phone": "+919999922222", "name": "Iyer Family", "role": "customer",
      "address": "Villa 12, Palm Meadows, Velachery, Chennai",
-     "pincode": "600042", "notes": "Leave at gate", "onboarded": True},
+     "pincode": "600042", "notes": "Leave at gate", "onboarded": True,
+     "wallet_balance": 1560.0},
     {"phone": "+919999933333", "name": "Khan Family", "role": "customer",
      "address": "House 7, R.A. Puram, Chennai",
-     "pincode": "600028", "notes": "Hand to security", "onboarded": True},
+     "pincode": "600028", "notes": "Hand to security", "onboarded": True,
+     "wallet_balance": 240.0},  # low balance → triggers banner
 ]
 
 
@@ -814,10 +906,15 @@ async def mark_delivered(order_id: str,
         raise HTTPException(404, "Order not found")
     if user["role"] == "delivery" and order.get("delivery_user_id") != user["id"]:
         raise HTTPException(403, "Not assigned to you")
-    await db.orders.update_one(
-        {"id": order_id},
-        {"$set": {"delivered": True, "delivered_at": datetime.now(timezone.utc)}},
-    )
+    if not order.get("delivered"):
+        await db.orders.update_one(
+            {"id": order_id},
+            {"$set": {"delivered": True,
+                      "delivered_at": datetime.now(timezone.utc)}},
+        )
+        # Auto-debit the wallet for what was just delivered.
+        order_after = await db.orders.find_one({"id": order_id}, {"_id": 0})
+        await _debit_for_order(order_after, by_user_id=user["id"])
     return await db.orders.find_one({"id": order_id}, {"_id": 0})
 
 
@@ -939,6 +1036,103 @@ async def unread_count(user: dict = Depends(get_current_user)):
         threads = await db.support_threads.find({}, {"_id": 0}).to_list(2000)
         return {"unread": sum(t.get("unread_for_agent", 0) for t in threads)}
     return {"unread": 0}
+
+
+# ---------------------------------------------------------------------------
+# Wallet
+# ---------------------------------------------------------------------------
+def _suggest_topups(threshold: float) -> List[int]:
+    return [1500, 2000, 3000, 5000]
+
+
+@api.get("/wallet/me")
+async def wallet_me(user: dict = Depends(get_current_user)):
+    pricing = await _get_pricing()
+    # Daily burn = subscribed meals × default qty × pricing
+    sub = await db.subscriptions.find_one(
+        {"user_id": user["id"], "active": True}, {"_id": 0})
+    qty = (sub or {}).get("default_quantity", 1)
+    meals_subbed = (sub or {}).get("meals", [])
+    daily_burn = sum(float(pricing[m]) * qty for m in meals_subbed)
+    bal = float(user.get("wallet_balance", 0.0))
+    days_left = int(bal / daily_burn) if daily_burn > 0 else 999
+    recent = await db.wallet_txns.find({"user_id": user["id"]}, {"_id": 0}) \
+        .sort("created_at", -1).limit(30).to_list(30)
+    return {
+        "balance": bal,
+        "threshold": float(user.get("wallet_threshold", 500.0)),
+        "pricing": pricing,
+        "daily_burn": round(daily_burn, 2),
+        "days_left": days_left,
+        "low": bal < float(user.get("wallet_threshold", 500.0)),
+        "recent": recent,
+        "suggested_topups": _suggest_topups(
+            float(user.get("wallet_threshold", 500.0))),
+    }
+
+
+@api.get("/wallet/pricing")
+async def get_pricing_api(_: dict = Depends(get_current_user)):
+    return await _get_pricing()
+
+
+@api.put("/admin/wallet/pricing")
+async def update_pricing(req: UpdatePricingReq,
+                         _: dict = Depends(require_role("admin"))):
+    upd = {k: v for k, v in req.dict().items() if v is not None}
+    if not upd:
+        raise HTTPException(400, "Nothing to update")
+    await db.pricing.update_one({"_id": "current"}, {"$set": upd}, upsert=True)
+    return await _get_pricing()
+
+
+@api.post("/wallet/topup-request")
+async def request_topup(req: TopupRequestReq,
+                        user: dict = Depends(get_current_user)):
+    if user["role"] != "customer":
+        raise HTTPException(403, "Customers only")
+    if req.amount <= 0:
+        raise HTTPException(400, "Amount must be positive")
+    thread = await _get_or_create_thread(user["id"])
+    msg = SupportMessage(
+        thread_id=thread["id"], sender_id=user["id"], sender_role="customer",
+        kind="text",
+        text=f"Hi — I'd like to top up ₹{int(req.amount)} to my wallet. "
+             f"Please confirm the easiest way to pay.",
+    )
+    await db.support_messages.insert_one(msg.dict())
+    await db.support_threads.update_one(
+        {"id": thread["id"]},
+        {"$set": {"last_message_at": msg.created_at,
+                  "last_message_preview": msg.text[:60]},
+         "$inc": {"unread_for_agent": 1}},
+    )
+    return {"sent": True, "thread_id": thread["id"]}
+
+
+@api.post("/admin/wallet/{user_id}/credit")
+async def admin_credit(user_id: str, req: CreditWalletReq,
+                       actor: dict = Depends(require_role("admin", "agent"))):
+    if req.amount <= 0:
+        raise HTTPException(400, "Amount must be positive")
+    return await _record_wallet_txn(user_id, "credit", req.amount,
+                                    req.reason, by_user_id=actor["id"])
+
+
+@api.get("/admin/wallet/transactions")
+async def admin_txns(user_id: Optional[str] = None,
+                     _: dict = Depends(require_role("admin", "agent"))):
+    q = {"user_id": user_id} if user_id else {}
+    txns = await db.wallet_txns.find(q, {"_id": 0}) \
+        .sort("created_at", -1).limit(500).to_list(500)
+    return txns
+
+
+@api.get("/admin/wallet/customers")
+async def admin_wallet_customers(_: dict = Depends(require_role("admin", "agent"))):
+    customers = await db.users.find(
+        {"role": "customer"}, {"_id": 0}).sort("name", 1).to_list(2000)
+    return customers
 
 
 # ---------------------------------------------------------------------------

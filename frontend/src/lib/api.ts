@@ -15,6 +15,8 @@ export interface User {
   pincode: string;
   notes: string;
   onboarded: boolean;
+  wallet_balance?: number;
+  wallet_threshold?: number;
 }
 
 let _token: string | null = null;
@@ -183,4 +185,31 @@ export const supportApi = {
     api<SupportMessage>(`/support/threads/${threadId}/messages`,
       { method: "POST", body: JSON.stringify(payload) }),
   unread: () => api<{ unread: number }>("/support/unread"),
+};
+
+// ---- Wallet -------------------------------------------------------------
+export interface WalletTxn {
+  id: string; user_id: string; type: "credit" | "debit";
+  amount: number; balance_after: number; reason: string;
+  ref_order_id: string | null; by_user_id: string | null;
+  created_at: string;
+}
+export interface WalletInfo {
+  balance: number; threshold: number;
+  pricing: { breakfast: number; lunch: number; dinner: number };
+  daily_burn: number; days_left: number; low: boolean;
+  recent: WalletTxn[]; suggested_topups: number[];
+}
+export const walletApi = {
+  me: () => api<WalletInfo>("/wallet/me"),
+  pricing: () => api<{ breakfast: number; lunch: number; dinner: number }>("/wallet/pricing"),
+  requestTopup: (amount: number) =>
+    api<{ sent: boolean; thread_id: string }>("/wallet/topup-request",
+      { method: "POST", body: JSON.stringify({ amount }) }),
+  adminCustomers: () => api<User[]>("/admin/wallet/customers"),
+  adminCredit: (userId: string, amount: number, reason: string) =>
+    api<{ balance: number; txn: WalletTxn }>(`/admin/wallet/${userId}/credit`,
+      { method: "POST", body: JSON.stringify({ amount, reason }) }),
+  adminTxns: (userId?: string) =>
+    api<WalletTxn[]>(`/admin/wallet/transactions${userId ? `?user_id=${userId}` : ""}`),
 };
