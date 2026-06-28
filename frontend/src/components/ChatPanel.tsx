@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
   View, Text, StyleSheet, TextInput, Pressable, FlatList,
-  ActivityIndicator, KeyboardAvoidingView, Platform,
+  ActivityIndicator, KeyboardAvoidingView, Platform, AppState,
+  AppStateStatus,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -13,7 +14,6 @@ import {
 import * as FileSystem from "expo-file-system";
 
 import { supportApi, SupportMessage, SupportThread, Role } from "@/src/lib/api";
-import { useAuth } from "@/src/lib/auth";
 import { colors, spacing, radius, shadow } from "@/src/lib/theme";
 
 interface Props {
@@ -46,10 +46,41 @@ export default function ChatPanel({ thread, myRole, myUserId, headerTitle,
 
   useEffect(() => { load(); }, [load]);
 
-  // Poll every 4 seconds for new messages while panel is open
+  // Poll every 4s while the app is in the FOREGROUND only. Going to
+  // background (lockscreen, app switcher) clears the interval so we don't
+  // keep hitting the API on a screen the user can't see. We also do a
+  // single immediate refresh on the way back to foreground so the user
+  // doesn't stare at stale bubbles waiting for the next tick.
   useEffect(() => {
-    const t = setInterval(load, 4000);
-    return () => clearInterval(t);
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const startPolling = () => {
+      if (intervalId !== null) return;
+      intervalId = setInterval(load, 4000);
+    };
+    const stopPolling = () => {
+      if (intervalId !== null) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    // Start immediately if we're already active (web + initial mount).
+    if (AppState.currentState === "active") startPolling();
+
+    const onChange = (state: AppStateStatus) => {
+      if (state === "active") {
+        load();          // catch up on missed messages
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+    const sub = AppState.addEventListener("change", onChange);
+    return () => {
+      stopPolling();
+      sub.remove();
+    };
   }, [load]);
 
   useEffect(() => {

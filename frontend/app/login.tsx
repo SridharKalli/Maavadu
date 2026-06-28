@@ -10,7 +10,7 @@ import * as Haptics from "expo-haptics";
 
 import { auth } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
-import { colors, spacing, radius, shadow } from "@/src/lib/theme";
+import { colors, spacing, radius, shadow, font } from "@/src/lib/theme";
 
 const HERO = "https://images.pexels.com/photos/35008222/pexels-photo-35008222.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940";
 
@@ -181,6 +181,7 @@ const styles = StyleSheet.create({
   heroInner: { flex: 1, padding: spacing.xl, justifyContent: "flex-end" },
   heroSmall: { color: colors.brandTertiary, fontSize: 14, marginBottom: spacing.xs },
   heroTitle: { color: colors.onSurfaceInverse, fontSize: 40, fontWeight: "700",
+               fontFamily: font.display,
                letterSpacing: -0.5 },
   heroSub: { color: colors.brandTertiary, fontSize: 15, marginTop: spacing.sm },
 

@@ -16,7 +16,7 @@ import {
 } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
 import { istDateStr } from "@/src/lib/ist";
-import { colors, spacing, radius, shadow, DAY_NAMES_FULL } from "@/src/lib/theme";
+import { colors, spacing, radius, shadow, font, DAY_NAMES_FULL } from "@/src/lib/theme";
 
 const HERO = "https://images.pexels.com/photos/35008222/pexels-photo-35008222.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940";
 const ALL_MEALS: MealKey[] = ["breakfast", "lunch", "dinner"];
@@ -584,6 +584,7 @@ const styles = StyleSheet.create({
   heroBottom: { flex: 1, padding: spacing.xl, justifyContent: "flex-end" },
   heroGreet: { color: colors.brandTertiary, fontSize: 14, marginBottom: spacing.xs },
   heroTitle: { color: colors.onSurfaceInverse, fontSize: 32, fontWeight: "700",
+               fontFamily: font.display,
                letterSpacing: -0.5 },
   heroDate: { color: colors.brandTertiary, fontSize: 14, marginTop: spacing.xs },
 
