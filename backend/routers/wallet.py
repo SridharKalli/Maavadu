@@ -13,7 +13,15 @@ router = APIRouter()
 
 
 def _suggest_topups(threshold: float) -> List[int]:
-    return [3000, 6000, 10000]
+    """Round-number top-up tiers that scale with the user's low-balance
+    threshold. Roughly: ~6×, ~12× and ~20× the threshold, snapped to the
+    next ₹500 step. Falls back to sensible defaults when threshold is 0.
+    """
+    if threshold <= 0:
+        return [3000, 6000, 10000]
+    def _snap(n: float) -> int:
+        return int(max(500, round(n / 500.0) * 500))
+    return [_snap(threshold * 6), _snap(threshold * 12), _snap(threshold * 20)]
 
 
 @router.get("/wallet/me")
@@ -91,6 +99,9 @@ async def request_topup(req: TopupRequestReq,
         kind="text",
         text=f"Hi \u2014 I'd like to top up \u20b9{int(req.amount)} to my wallet. "
              f"Please confirm the easiest way to pay.",
+        meta={"type": "topup_request",
+              "amount": float(req.amount),
+              "status": "pending"},
     )
     await db.support_messages.insert_one(msg.dict())
     await db.support_threads.update_one(
@@ -99,7 +110,7 @@ async def request_topup(req: TopupRequestReq,
                   "last_message_preview": msg.text[:60]},
          "$inc": {"unread_for_agent": 1}},
     )
-    return {"sent": True, "thread_id": thread["id"]}
+    return {"sent": True, "thread_id": thread["id"], "message_id": msg.id}
 
 
 @router.post("/admin/wallet/{user_id}/credit")

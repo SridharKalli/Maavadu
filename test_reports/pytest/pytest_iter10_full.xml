@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="22" failures="5" skipped="0" tests="78" time="10.532" timestamp="2026-06-28T09:39:48.492457+00:00" hostname="agent-env-3074bbc9-874e-4b63-811f-416b7e257fb4"><testcase classname="tests.test_admin_pricing" name="test_pricing_initial_shape" time="0.284" /><testcase classname="tests.test_admin_pricing" name="test_pricing_full_update" time="0.215" /><testcase classname="tests.test_admin_pricing" name="test_pricing_partial_update_leaves_others" time="0.316" /><testcase classname="tests.test_admin_pricing" name="test_pricing_negative_rejected" time="0.132" /><testcase classname="tests.test_admin_pricing" name="test_pricing_requires_admin" time="0.096" /><testcase classname="tests.test_admin_pricing" name="test_zz_restore_original" time="0.257" /><testcase classname="tests.test_iter10_hardening.TestPhoneValidation" name="test_invalid_phone_returns_422" time="0.131" /><testcase classname="tests.test_iter10_hardening.TestPhoneValidation" name="test_invalid_phone_no_plus" time="0.042" /><testcase classname="tests.test_iter10_hardening.TestPhoneValidation" name="test_invalid_phone_too_short" time="0.047" /><testcase classname="tests.test_iter10_hardening.TestPhoneValidation" name="test_valid_phone_returns_200_with_dev_otp" time="0.046"><failure message="AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code">tests/test_iter10_hardening.py:67: in test_valid_phone_returns_200_with_dev_otp
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</failure></testcase><testcase classname="tests.test_iter10_hardening.TestOtpRateLimit" name="test_4th_request_within_60s_returns_429" time="0.458" /><testcase classname="tests.test_iter10_hardening.TestOtpRateLimit" name="test_different_phones_dont_share_bucket" time="0.187" /><testcase classname="tests.test_iter10_hardening.TestWalletAtomicPricing" name="test_sharma_daily_burn_1065" time="0.136" /><testcase classname="tests.test_iter10_hardening.TestWalletAtomicPricing" name="test_admin_credit_is_atomic_and_returns_new_balance" time="0.045"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/conftest.py:36: in admin_auth
+    token, user = _login(api_client, base_url, "+919000000001")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/conftest.py:26: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_iter10_hardening.TestOnboardingPendingTopup" name="test_initial_topup_creates_pending_request" time="0.329" /><testcase classname="tests.test_iter10_hardening.TestOnboardingPendingTopup" name="test_subscription_end_date_is_10_years_out" time="0.203" /><testcase classname="tests.test_iter10_hardening.TestTopupApproveReject" name="test_approve_credits_wallet_and_posts_confirmation" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/conftest.py:36: in admin_auth
+    token, user = _login(api_client, base_url, "+919000000001")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/conftest.py:26: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_iter10_hardening.TestTopupApproveReject" name="test_double_approve_returns_400" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/conftest.py:36: in admin_auth
+    token, user = _login(api_client, base_url, "+919000000001")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/conftest.py:26: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_iter10_hardening.TestTopupApproveReject" name="test_reject_does_not_credit" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/conftest.py:36: in admin_auth
+    token, user = _login(api_client, base_url, "+919000000001")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/conftest.py:26: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_iter10_hardening.TestTopupApproveReject" name="test_customer_cannot_approve" time="0.235" /><testcase classname="tests.test_iter10_hardening.TestSuggestTopups" name="test_suggested_topups_for_default_threshold" time="0.049" /><testcase classname="tests.test_iter10_hardening.TestCorsConfig" name="test_cors_default_in_prod_is_maavadu" time="0.007" /><testcase classname="tests.test_iter10_hardening.TestCorsConfig" name="test_cors_default_in_dev_is_star" time="0.002" /><testcase classname="tests.test_iter10_hardening.TestRegression" name="test_pricing_returns_new_shape" time="0.045" /><testcase classname="tests.test_iter10_hardening.TestRegression" name="test_admin_stats_includes_wallet_low" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/conftest.py:36: in admin_auth
+    token, user = _login(api_client, base_url, "+919000000001")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/conftest.py:26: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_iter10_hardening.TestRegression" name="test_support_roster_for_agent" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/conftest.py:36: in admin_auth
+    token, user = _login(api_client, base_url, "+919000000001")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/conftest.py:26: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_iter7_team_subs_support" name="test_support_contact_returns_priya" time="0.325" /><testcase classname="tests.test_iter7_team_subs_support" name="test_subscription_default_size_family_reshapes_tomorrow" time="0.197" /><testcase classname="tests.test_iter7_team_subs_support" name="test_subscription_meals_lunch_only_disables_other_meals" time="0.243" /><testcase classname="tests.test_iter7_team_subs_support" name="test_zz_restore_sharma_defaults" time="0.100" /><testcase classname="tests.test_iter7_team_subs_support" name="test_admin_create_agent_then_duplicate" time="0.090"><error message="failed on setup with &quot;requests.exceptions.HTTPError: 429 Client Error: Too Many Requests for url: https://fresh-feast-app-1.preview.emergentagent.com/api/auth/send-otp&quot;">tests/test_iter7_team_subs_support.py:41: in admin_token
+    return _login(ADMIN_PHONE)
+           ^^^^^^^^^^^^^^^^^^^
+tests/test_iter7_team_subs_support.py:25: in _login
+    r.raise_for_status()
+/root/.venv/lib/python3.11/site-packages/requests/models.py:1167: in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+E   requests.exceptions.HTTPError: 429 Client Error: Too Many Requests for url: https://fresh-feast-app-1.preview.emergentagent.com/api/auth/send-otp</error></testcase><testcase classname="tests.test_iter8_admin_stats.TestAdminStatsKeys" name="test_admin_stats_returns_all_new_and_old_keys" time="0.044"><error message="failed on setup with &quot;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/test_iter8_admin_stats.py:151: in admin_auth
+    assert r.status_code == 200
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_iter8_admin_stats.TestAdminStatsKeys" name="test_total_positive_balance_matches_aggregation" time="0.000"><error message="failed on setup with &quot;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/test_iter8_admin_stats.py:151: in admin_auth
+    assert r.status_code == 200
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_iter8_admin_stats.TestSupportMetricsFlow" name="test_support_metrics_lifecycle" time="0.000"><error message="failed on setup with &quot;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/test_iter8_admin_stats.py:151: in admin_auth
+    assert r.status_code == 200
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_iter9_support_roster" name="test_support_customers_agent_200_returns_roster" time="0.279"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/test_iter9_support_roster.py:45: in sharma_token
+    return _login("+919999911111")
+           ^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_iter9_support_roster.py:25: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_iter9_support_roster" name="test_support_customers_includes_last_seen_for_recent_logins" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/test_iter9_support_roster.py:45: in sharma_token
+    return _login("+919999911111")
+           ^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_iter9_support_roster.py:25: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_iter9_support_roster" name="test_support_customers_thread_id_field_present_when_thread_exists" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/test_iter9_support_roster.py:45: in sharma_token
+    return _login("+919999911111")
+           ^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_iter9_support_roster.py:25: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_iter9_support_roster" name="test_support_customers_forbidden_for_non_agent" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/test_iter9_support_roster.py:45: in sharma_token
+    return _login("+919999911111")
+           ^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_iter9_support_roster.py:25: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_iter9_support_roster" name="test_support_customers_admin_also_allowed" time="0.087"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/test_iter9_support_roster.py:40: in admin_token
+    return _login("+919000000001")
+           ^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_iter9_support_roster.py:25: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_iter9_support_roster" name="test_support_start_idempotent_for_iyer" time="0.518" /><testcase classname="tests.test_iter9_support_roster" name="test_support_start_404_for_unknown_customer" time="0.104" /><testcase classname="tests.test_iter9_support_roster" name="test_support_start_forbidden_for_customer" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/test_iter9_support_roster.py:45: in sharma_token
+    return _login("+919999911111")
+           ^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_iter9_support_roster.py:25: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_iter9_support_roster" name="test_agent_sends_message_into_iyer_thread_and_preview_updates" time="0.388" /><testcase classname="tests.test_iter9_support_roster" name="test_last_seen_bumps_on_any_authenticated_call" time="1.497" /><testcase classname="tests.test_iter9_support_roster" name="test_delivery_route_accepts_date_query" time="0.325" /><testcase classname="tests.test_iteration3_wallet_pricing" name="test_pricing_returns_new_shape" time="0.044" /><testcase classname="tests.test_iteration3_wallet_pricing" name="test_wallet_me_sharma_daily_burn" time="0.045" /><testcase classname="tests.test_iteration3_wallet_pricing" name="test_wallet_me_iyer_daily_burn" time="0.132" /><testcase classname="tests.test_iteration3_wallet_pricing" name="test_patch_lunch_variant_and_debit_reason" time="0.421"><failure message="AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code">tests/test_iteration3_wallet_pricing.py:153: in test_patch_lunch_variant_and_debit_reason
+    admin_tok, _ = _login(api_client, base_url, "+919000000001")
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_iteration3_wallet_pricing.py:20: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</failure></testcase><testcase classname="tests.test_iteration3_wallet_pricing" name="test_onboarding_with_initial_topup_creates_pending_request" time="0.292" /><testcase classname="tests.test_iteration3_wallet_pricing" name="test_admin_can_approve_onboarding_topup" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/conftest.py:36: in admin_auth
+    token, user = _login(api_client, base_url, "+919000000001")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/conftest.py:26: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_iteration3_wallet_pricing" name="test_onboarding_accepts_extra_fields" time="0.192" /><testcase classname="tests.test_iteration3_wallet_pricing" name="test_admin_stats_wallet_low_present" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/conftest.py:36: in admin_auth
+    token, user = _login(api_client, base_url, "+919000000001")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/conftest.py:26: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_iteration3_wallet_pricing" name="test_predictive_low_balance_nudge" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/conftest.py:36: in admin_auth
+    token, user = _login(api_client, base_url, "+919000000001")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/conftest.py:26: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_iteration3_wallet_pricing" name="test_regression_send_otp" time="0.043"><failure message="assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code">tests/test_iteration3_wallet_pricing.py:425: in test_regression_send_otp
+    assert r.status_code == 200
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</failure></testcase><testcase classname="tests.test_iteration3_wallet_pricing" name="test_regression_menu_week" time="0.045" /><testcase classname="tests.test_iteration3_wallet_pricing" name="test_regression_orders_upcoming" time="0.046" /><testcase classname="tests.test_iteration3_wallet_pricing" name="test_regression_delivery_route" time="0.045" /><testcase classname="tests.test_onboarding_pincodes_support" name="test_health_app_meta" time="0.043" /><testcase classname="tests.test_onboarding_pincodes_support" name="test_public_menu_no_auth" time="0.090" /><testcase classname="tests.test_onboarding_pincodes_support" name="test_list_pincodes_seeded" time="0.044" /><testcase classname="tests.test_onboarding_pincodes_support" name="test_check_pincode_serviceable" time="0.045" /><testcase classname="tests.test_onboarding_pincodes_support" name="test_check_pincode_not_serviceable" time="0.045" /><testcase classname="tests.test_onboarding_pincodes_support" name="test_onboarding_complete_creates_filtered_orders" time="0.187" /><testcase classname="tests.test_onboarding_pincodes_support" name="test_onboarding_rejects_bad_pincode" time="0.170" /><testcase classname="tests.test_onboarding_pincodes_support" name="test_onboarding_rejects_empty_meals" time="0.176" /><testcase classname="tests.test_onboarding_pincodes_support" name="test_admin_add_pincode" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/conftest.py:36: in admin_auth
+    token, user = _login(api_client, base_url, "+919000000001")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/conftest.py:26: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_onboarding_pincodes_support" name="test_admin_add_pincode_forbidden_for_customer" time="0.049" /><testcase classname="tests.test_onboarding_pincodes_support" name="test_admin_bulk_pincodes" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/conftest.py:36: in admin_auth
+    token, user = _login(api_client, base_url, "+919000000001")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/conftest.py:26: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_onboarding_pincodes_support" name="test_admin_delete_pincode_deactivates" time="0.000"><error message="failed on setup with &quot;AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">tests/conftest.py:36: in admin_auth
+    token, user = _login(api_client, base_url, "+919000000001")
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/conftest.py:26: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="tests.test_onboarding_pincodes_support" name="test_iyer_orders_only_lunch_dinner" time="0.046" /><testcase classname="tests.test_onboarding_pincodes_support" name="test_iyer_cannot_modify_breakfast" time="0.090" /><testcase classname="tests.test_onboarding_pincodes_support" name="test_agent_login_role" time="0.086" /><testcase classname="tests.test_onboarding_pincodes_support" name="test_support_me_auto_creates_thread" time="0.046" /><testcase classname="tests.test_onboarding_pincodes_support" name="test_customer_send_text_bumps_unread" time="0.230" /><testcase classname="tests.test_onboarding_pincodes_support" name="test_customer_send_voice" time="0.091" /><testcase classname="tests.test_onboarding_pincodes_support" name="test_agent_threads_joined_fields_and_forbidden_for_customer" time="0.041"><failure message="AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code">tests/test_onboarding_pincodes_support.py:279: in test_agent_threads_joined_fields_and_forbidden_for_customer
+    agent_token, _ = _login(api_client, base_url, "+919000000003")
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_onboarding_pincodes_support.py:10: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</failure></testcase><testcase classname="tests.test_onboarding_pincodes_support" name="test_agent_reply_bumps_customer_unread_and_get_resets_agent" time="0.045"><failure message="AssertionError: {&quot;detail&quot;:&quot;Too many OTP requests. Try again in a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code">tests/test_onboarding_pincodes_support.py:296: in test_agent_reply_bumps_customer_unread_and_get_resets_agent
+    agent_token, _ = _login(api_client, base_url, "+919000000003")
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_onboarding_pincodes_support.py:10: in _login
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Too many OTP requests. Try again in a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</failure></testcase></testsuite></testsuites>

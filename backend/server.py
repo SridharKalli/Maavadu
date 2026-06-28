@@ -10,7 +10,7 @@ import logging
 from fastapi import APIRouter, FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
-from db import client
+from db import client, CORS_ALLOWED_ORIGINS, ensure_indexes
 from routers import (
     admin, auth, delivery, menu, onboarding, orders, pincodes,
     subscriptions, support, wallet,
@@ -38,7 +38,7 @@ app.include_router(api)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["*"],
+    allow_origins=CORS_ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -46,6 +46,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def on_startup():
+    await ensure_indexes()
     await run_seed()
 
 

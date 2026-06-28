@@ -172,9 +172,11 @@ def test_patch_lunch_variant_and_debit_reason(base_url, api_client,
         f"reason missing 'lunch cou': {debit['reason']}"
 
 
-# ===== 5. Onboarding completes with wallet top-up =====
+# ===== 5. Onboarding's initial top-up does NOT auto-credit anymore =====
+# Instead it creates a pending top-up request in the customer's support thread
+# for an admin/agent to confirm payment offline before crediting the wallet.
 import random
-def test_onboarding_with_initial_topup_creates_welcome_credit(base_url, api_client):
+def test_onboarding_with_initial_topup_creates_pending_request(base_url, api_client):
     # Use a randomized phone to keep the test idempotent across repeated runs.
     phone = f"+9199{int(time.time()) % 10}{random.randint(10000000, 99999999)}"
     # Send OTP (creates user if missing)
@@ -207,20 +209,79 @@ def test_onboarding_with_initial_topup_creates_welcome_credit(base_url, api_clie
     assert body["user"]["pincode"] == "600020"
     assert body["subscription"]["default_size"] == "couple"
     assert body["subscription"]["default_lunch_variant"] == "without_rice"
+    # Rolling subscription end date is ~10 years out.
+    start = body["subscription"]["start_date"]
+    end = body["subscription"]["end_date"]
+    assert int(end[:4]) - int(start[:4]) >= 9, \
+        f"expected ~10-year end_date, got start={start} end={end}"
+    # Welcome top-up returns the pending support message id, no auto-credit
+    assert body.get("topup_request_id"), \
+        "expected topup_request_id when initial_topup > 0"
 
-    # /wallet/me balance == 3000
+    # /wallet/me balance is still 0 — no money entered the ledger
     r = api_client.get(f"{base_url}/api/wallet/me", headers=hdrs)
     assert r.status_code == 200
     w = r.json()
-    assert w["balance"] == 3000.0, f"expected balance 3000, got {w['balance']}"
-    # Welcome top-up credit txn exists
-    welcome = next(
-        (t for t in w["recent"]
-         if t["type"] == "credit" and t["reason"] == "Welcome top-up"),
-        None,
-    )
-    assert welcome is not None, f"no Welcome top-up txn in {w['recent']}"
-    assert welcome["amount"] == 3000.0
+    assert w["balance"] == 0.0, \
+        f"initial_topup should NOT auto-credit, got balance {w['balance']}"
+    # No credit txn yet
+    assert not any(t["type"] == "credit" for t in w["recent"]), \
+        f"unexpected credit txn in {w['recent']}"
+
+    # The pending request must be visible in the customer's support thread
+    r = api_client.get(f"{base_url}/api/support/me", headers=hdrs)
+    assert r.status_code == 200
+    thread = r.json()
+    r = api_client.get(
+        f"{base_url}/api/support/threads/{thread['id']}/messages", headers=hdrs)
+    assert r.status_code == 200
+    msgs = r.json()
+    pending = [m for m in msgs
+               if (m.get("meta") or {}).get("type") == "topup_request"
+               and (m.get("meta") or {}).get("status") == "pending"]
+    assert len(pending) == 1, \
+        f"expected 1 pending topup_request, got {len(pending)}"
+    assert pending[0]["meta"]["amount"] == 3000.0
+
+
+# ===== 5b. Admin approves the pending top-up via chat → wallet credited =====
+def test_admin_can_approve_onboarding_topup(base_url, api_client, admin_auth):
+    phone = f"+9199{int(time.time()) % 10}{random.randint(10000000, 99999999)}"
+    api_client.post(f"{base_url}/api/auth/send-otp", json={"phone": phone})
+    otp = api_client.post(
+        f"{base_url}/api/auth/send-otp", json={"phone": phone}).json()["dev_otp"]
+    tok = api_client.post(
+        f"{base_url}/api/auth/verify-otp",
+        json={"phone": phone, "code": otp}).json()["token"]
+    hdrs = _headers(tok)
+    payload = {
+        "name": "TEST Approve",
+        "address": "Flat 1, TestVille",
+        "pincode": "600020", "notes": "",
+        "meals": ["lunch"], "default_size": "single",
+        "default_lunch_variant": "with_rice", "initial_topup": 5000,
+    }
+    body = api_client.post(
+        f"{base_url}/api/onboarding/complete",
+        json=payload, headers=hdrs).json()
+    msg_id = body["topup_request_id"]
+
+    # Admin approves
+    r = api_client.post(
+        f"{base_url}/api/support/messages/{msg_id}/topup-approve",
+        headers=admin_auth["headers"])
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "approved"
+    assert r.json()["balance"] == 5000.0
+
+    # Wallet should now show 5000
+    w = api_client.get(f"{base_url}/api/wallet/me", headers=hdrs).json()
+    assert w["balance"] == 5000.0
+    # Double-approve must fail
+    r = api_client.post(
+        f"{base_url}/api/support/messages/{msg_id}/topup-approve",
+        headers=admin_auth["headers"])
+    assert r.status_code == 400
 
 
 # ===== 6. Onboarding accepts payload with extra unknown fields (pydantic ignores) =====

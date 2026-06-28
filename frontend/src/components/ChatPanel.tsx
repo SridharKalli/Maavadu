@@ -154,7 +154,26 @@ export default function ChatPanel({ thread, myRole, myUserId, headerTitle,
           keyExtractor={(m) => m.id}
           contentContainerStyle={{ padding: spacing.lg, gap: spacing.sm }}
           renderItem={({ item }) => (
-            <Bubble msg={item} mine={item.sender_id === myUserId} />
+            <Bubble
+              msg={item}
+              mine={item.sender_id === myUserId}
+              canAction={myRole === "admin" || myRole === "agent"}
+              onAction={async (action) => {
+                try {
+                  if (action === "approve") {
+                    await supportApi.approveTopup(item.id);
+                  } else {
+                    await supportApi.rejectTopup(item.id);
+                  }
+                  Haptics.notificationAsync(
+                    Haptics.NotificationFeedbackType.Success);
+                  load();
+                } catch {
+                  Haptics.notificationAsync(
+                    Haptics.NotificationFeedbackType.Error);
+                }
+              }}
+            />
           )}
           ListEmptyComponent={
             <View style={styles.emptyChat}>
@@ -216,9 +235,19 @@ export default function ChatPanel({ thread, myRole, myUserId, headerTitle,
   );
 }
 
-function Bubble({ msg, mine }: { msg: SupportMessage; mine: boolean }) {
+function Bubble({ msg, mine, canAction, onAction }: {
+  msg: SupportMessage; mine: boolean;
+  canAction: boolean;
+  onAction: (action: "approve" | "reject") => void;
+}) {
   const time = new Date(msg.created_at).toLocaleTimeString([],
     { hour: "2-digit", minute: "2-digit" });
+  const meta = msg.meta;
+  const isTopupReq = meta?.type === "topup_request";
+  const isTopupAct = meta?.type === "topup_action";
+  const pending = isTopupReq && meta?.status === "pending";
+  const approved = (isTopupReq || isTopupAct) && meta?.status === "approved";
+  const rejected = (isTopupReq || isTopupAct) && meta?.status === "rejected";
   return (
     <View style={[styles.bubbleRow, mine ? styles.bubbleRowMine : styles.bubbleRowTheirs]}>
       <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
@@ -229,6 +258,54 @@ function Bubble({ msg, mine }: { msg: SupportMessage; mine: boolean }) {
             {msg.text}
           </Text>
         )}
+
+        {/* Pending top-up: show Approve / Reject for agents/admins, or a
+            "waiting" hint to the customer. */}
+        {pending && canAction && (
+          <View style={styles.topupActions} testID={`topup-actions-${msg.id}`}>
+            <Pressable
+              testID={`topup-approve-${msg.id}`}
+              onPress={() => onAction("approve")}
+              style={[styles.topupBtn, styles.topupBtnApprove]}>
+              <Feather name="check" size={14} color={colors.onBrand} />
+              <Text style={styles.topupBtnText}>Approve</Text>
+            </Pressable>
+            <Pressable
+              testID={`topup-reject-${msg.id}`}
+              onPress={() => onAction("reject")}
+              style={[styles.topupBtn, styles.topupBtnReject]}>
+              <Feather name="x" size={14} color={colors.error} />
+              <Text style={[styles.topupBtnText,
+                { color: colors.error }]}>Reject</Text>
+            </Pressable>
+          </View>
+        )}
+        {pending && !canAction && (
+          <View style={[styles.topupBadge, styles.topupBadgePending]}>
+            <Feather name="clock" size={12}
+              color={mine ? colors.onBrand : colors.warning} />
+            <Text style={[styles.topupBadgeText,
+              mine && { color: colors.onBrand }]}>
+              Waiting for confirmation
+            </Text>
+          </View>
+        )}
+        {(approved || rejected) && isTopupReq && (
+          <View style={[styles.topupBadge,
+            approved ? styles.topupBadgeApproved : styles.topupBadgeRejected]}>
+            <Feather
+              name={approved ? "check-circle" : "x-circle"}
+              size={12}
+              color={mine
+                ? colors.onBrand
+                : (approved ? colors.success : colors.error)} />
+            <Text style={[styles.topupBadgeText,
+              mine && { color: colors.onBrand }]}>
+              {approved ? "Approved" : "Not approved"}
+            </Text>
+          </View>
+        )}
+
         <Text style={[styles.bubbleTime, mine && { color: "rgba(255,255,255,0.7)" }]}>
           {time}
         </Text>
@@ -306,6 +383,26 @@ const styles = StyleSheet.create({
   bubbleText: { fontSize: 15, color: colors.onSurface, lineHeight: 20 },
   bubbleTime: { fontSize: 10, color: colors.onSurfaceMuted, marginTop: 4,
                 alignSelf: "flex-end" },
+
+  // Inline top-up approve/reject card inside a chat bubble
+  topupActions: { flexDirection: "row", gap: 8, marginTop: spacing.sm },
+  topupBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 12, paddingVertical: 8,
+    borderRadius: radius.pill, borderWidth: 1,
+  },
+  topupBtnApprove: { backgroundColor: colors.brand, borderColor: colors.brand },
+  topupBtnReject: { backgroundColor: colors.surface, borderColor: colors.error },
+  topupBtnText: { color: colors.onBrand, fontWeight: "700", fontSize: 13 },
+  topupBadge: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    marginTop: spacing.sm, paddingHorizontal: 10, paddingVertical: 6,
+    borderRadius: radius.pill, alignSelf: "flex-start",
+  },
+  topupBadgePending: { backgroundColor: "rgba(217,160,91,0.18)" },
+  topupBadgeApproved: { backgroundColor: "rgba(107,142,107,0.18)" },
+  topupBadgeRejected: { backgroundColor: "rgba(184,92,92,0.18)" },
+  topupBadgeText: { fontSize: 11, fontWeight: "700", color: colors.onSurface },
 
   composer: {
     paddingHorizontal: spacing.md, paddingVertical: spacing.sm,

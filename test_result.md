@@ -279,3 +279,72 @@ agent_communication:
         Low Balance + Pincodes.
 
       Test priorities: Pricing math first, then onboarding API, then nudge.
+
+
+# ---------------------------------------------------------------------------
+# Iteration 11 (June 2026) — Pre-launch hardening
+# ---------------------------------------------------------------------------
+
+agent_communication:
+  - agent: main
+    message: |
+      Applied the remaining 10 pre-launch code-review fixes. Please run the
+      full pytest suite and verify the new behaviours below.
+
+      BACKEND
+      • E.164 phone validation on POST /api/auth/send-otp
+          - {"phone":"invalid"} → 422 with E.164 error
+          - {"phone":"+919000000001"} → 200 sent
+      • Rate limit on /auth/send-otp: 3 requests per 60 seconds per phone.
+          4th hit returns 429 "Too many OTP requests…". Configurable via
+          OTP_RATE_MAX / OTP_RATE_WINDOW_SECONDS env vars.
+      • Wallet ledger: record_wallet_txn now uses an atomic $inc + returnDocument,
+          eliminating the read-then-write race. Existing tests for pricing
+          math + delivery debits should still pass (balances should still
+          land on the same totals).
+      • Onboarding now sets subscription.end_date ~10 years out (rolling) and
+          NO LONGER auto-credits initial_topup. Instead it inserts a pending
+          support message with meta={"type":"topup_request","status":"pending",
+          "amount":N,"source":"onboarding"} and returns topup_request_id.
+          (See updated test_iteration3_wallet_pricing.py for both flows.)
+      • New endpoints (admin/agent only):
+          POST /api/support/messages/{message_id}/topup-approve
+          POST /api/support/messages/{message_id}/topup-reject
+          Approve runs an atomic credit and posts a confirmation message.
+          Double-action returns 400.
+      • /wallet/me suggested_topups now scales with the user's threshold
+          (snapped to ₹500 increments). Default threshold 500 still yields
+          [3000, 6000, 10000].
+      • CORS_ALLOWED_ORIGINS defaults to https://maavadu.in in production
+          (DEV_MODE=1 keeps "*" so the local Expo dev server still works).
+
+      FRONTEND
+      • /app/frontend/src/lib/ist.ts: new `istDateStr(offset)` helper.
+          home.tsx now uses it for today/tomorrow lookups + hero date, so the
+          UI stays on the IST calendar regardless of device timezone or
+          UTC rollover late at night.
+      • Upsell card price calculation simplified to a single "from ₹X" using
+          Single + with_rice — removes the unreadable conditional chain that
+          was tripping TS and could read off an unsubscribed meal row.
+      • SupportMessage interface adds optional `meta`. ChatPanel renders
+          inline Approve / Reject buttons for agents/admins on pending
+          topup_request messages, a "Waiting for confirmation" pill for the
+          customer, and a coloured Approved/Rejected badge once actioned.
+      • supportApi.approveTopup / rejectTopup wired up.
+
+      REGRESSIONS TO WATCH
+      • If you re-run pytest within 60 seconds and any phone hits send-otp
+          more than 3 times, you'll see 429s. Each fixture-scope phone in
+          conftest only logs in once per session so this should not affect
+          normal runs.
+
+      PRIORITY ORDER
+      1) New onboarding behaviour (no auto-credit + topup_request_id +
+         10-year end_date).
+      2) Topup-approve / -reject happy-path + double-action 400.
+      3) Phone validation 422 + rate-limit 429.
+      4) Regression: existing 32 tests for pricing math, delivery debits,
+         admin stats, support roster.
+      5) Frontend smoke: customer home loads, wallet balance & upsell card
+         render, ChatPanel shows Approve/Reject when admin views a thread
+         containing a pending topup_request.

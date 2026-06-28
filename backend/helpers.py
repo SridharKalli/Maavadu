@@ -10,6 +10,7 @@ from typing import Optional
 
 import jwt
 from fastapi import Depends, Header, HTTPException
+from pymongo import ReturnDocument
 
 from db import (
     db, IST, CUTOFF_HOUR_LOCAL, JWT_SECRET, JWT_ALG, JWT_EXP_DAYS,
@@ -95,13 +96,23 @@ async def get_pricing() -> dict:
 async def record_wallet_txn(user_id: str, ttype: str, amount: float,
                             reason: str, ref_order_id: Optional[str] = None,
                             by_user_id: Optional[str] = None) -> dict:
-    user = await db.users.find_one({"id": user_id}, {"_id": 0})
-    if not user:
+    """Atomically credit/debit the user's wallet using a single `$inc` so two
+    concurrent deliveries (or a delivery + a manual credit) can't race each
+    other into a stale read-then-write window.
+    """
+    delta = round(amount if ttype == "credit" else -amount, 2)
+    updated = await db.users.find_one_and_update(
+        {"id": user_id},
+        {"$inc": {"wallet_balance": delta}},
+        return_document=ReturnDocument.AFTER,
+        projection={"_id": 0, "wallet_balance": 1},
+    )
+    if not updated:
         raise HTTPException(404, "user not found")
-    delta = amount if ttype == "credit" else -amount
-    new_bal = round(float(user.get("wallet_balance", 0.0)) + delta, 2)
-    await db.users.update_one({"id": user_id},
-                              {"$set": {"wallet_balance": new_bal}})
+    # Mongo's $inc on floats can leave tiny drift (e.g. 230.000000000001) — we
+    # round for display but keep the precise value on disk; rounding back
+    # would require another write and reintroduce a small race.
+    new_bal = round(float(updated.get("wallet_balance", 0.0)), 2)
     txn = WalletTxn(user_id=user_id, type=ttype, amount=amount,
                     balance_after=new_bal, reason=reason,
                     ref_order_id=ref_order_id, by_user_id=by_user_id)

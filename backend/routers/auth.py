@@ -1,22 +1,43 @@
 import logging
 import random
+import time
+from collections import deque
 from datetime import datetime, timedelta, timezone
+from typing import Deque, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from db import db, DEV_RETURN_OTP
+from db import db, DEV_RETURN_OTP, OTP_RATE_MAX, OTP_RATE_WINDOW_SECONDS
 from helpers import get_current_user, mk_token
 from models import SendOtpReq, UpdateProfileReq, User, VerifyOtpReq
 
 router = APIRouter()
 log = logging.getLogger("tiffin")
 
+# Per-phone sliding-window rate limit for /auth/send-otp. In-memory is fine for
+# a single-process MVP; swap in Redis if we ever fan out to multiple workers.
+_OTP_HITS: Dict[str, Deque[float]] = {}
+
+
+def _otp_rate_ok(phone: str) -> bool:
+    now = time.monotonic()
+    cutoff = now - OTP_RATE_WINDOW_SECONDS
+    hits = _OTP_HITS.setdefault(phone, deque())
+    while hits and hits[0] < cutoff:
+        hits.popleft()
+    if len(hits) >= OTP_RATE_MAX:
+        return False
+    hits.append(now)
+    return True
+
 
 @router.post("/auth/send-otp")
 async def send_otp(req: SendOtpReq):
     phone = req.phone.strip()
-    if not phone:
-        raise HTTPException(400, "phone required")
+    if not _otp_rate_ok(phone):
+        raise HTTPException(
+            429,
+            "Too many OTP requests. Try again in a minute.")
     user = await db.users.find_one({"phone": phone}, {"_id": 0})
     if not user:
         new_user = User(phone=phone, role="customer", onboarded=False)

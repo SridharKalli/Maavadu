@@ -1,10 +1,11 @@
 """Pydantic schemas and shared type aliases for the Tiffin API."""
 
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 Role = Literal["customer", "admin", "delivery", "agent"]
 MealKey = Literal["breakfast", "lunch", "dinner"]
@@ -128,12 +129,30 @@ class SupportMessage(BaseModel):
     text: str = ""
     voice_b64: str = ""
     voice_duration_ms: int = 0
+    # Structured payload for interactive messages (e.g. pending top-up requests
+    # the agent can Approve/Reject from chat). Examples:
+    #   {"type": "topup_request", "amount": 3000, "status": "pending"}
+    #   {"type": "topup_request", "amount": 3000, "status": "approved",
+    #    "actioned_by": "<user_id>", "actioned_at": "<iso>"}
+    meta: dict = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ---- Request payloads ----------------------------------------------------
+E164_RE = re.compile(r"^\+[1-9]\d{6,14}$")
+
+
 class SendOtpReq(BaseModel):
     phone: str
+
+    @field_validator("phone")
+    @classmethod
+    def _valid_phone(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not E164_RE.match(v):
+            raise ValueError(
+                "phone must be in E.164 format (e.g. +919999911111)")
+        return v
 
 
 class VerifyOtpReq(BaseModel):

@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 11 (final 10-of-16 hardening pass) — backend changes all VERIFIED. Created /app/backend/tests/test_iter10_hardening.py with 20 focused tests covering: E.164 phone validation (422 with 'E.164' message for 'invalid', no-plus, too-short; 200+dev_otp for valid), per-phone sliding-window OTP rate limit (3/60s — 4th = 429; different phones don't share buckets), atomic wallet $inc (admin credit returns new balance + verifies via /wallet/me), Sharma B+L+D couple with_rice daily_burn==1065, onboarding NO LONGER auto-credits (wallet stays 0 + topup_request_id returned + pending SupportMessage with meta {type:'topup_request',status:'pending',amount,source:'onboarding'}), subscription end_date is ~10 years out (year(end)-year(start)>=9), POST /support/messages/{id}/topup-approve credits wallet atomically + posts confirmation chat message + double-approve returns 400 + customer gets 403, topup-reject doesn't credit, _suggest_topups returns [3000,6000,10000] for default threshold 500, CORS_ALLOWED_ORIGINS defaults to ['https://maavadu.in'] when DEV_MODE=0 and to ['*'] when DEV_MODE=1 (verified via importlib.reload of db.py). All 20/20 iter10 tests PASS. Iteration3 (13 tests including the updated onboarding pending-topup + admin-approve flow) all PASS when run independently. Frontend smoke (mobile 390x844): customer home loads after Sharma OTP login, IST date renders correctly as 'Sunday, 28 Jun' / 'Monday, 29 Jun' (date is 2026-06-28 IST per backend), wallet balance ₹8020 with '~7 days' projection at ₹1065/day matching the daily_burn=1065 backend math. ChatPanel.tsx source confirms inline Approve/Reject buttons (testID 'topup-approve-{id}' / 'topup-reject-{id}') render for canAction=='admin'||'agent' on pending top-up bubbles and call supportApi.approveTopup / rejectTopup with optimistic reload(). Found one test-infra issue: existing test files (test_admin_pricing, test_iter7/8/9, test_onboarding_pincodes_support, test_iteration3) get cascade 429 errors when run in a single pytest session because the in-memory OTP_HITS bucket accumulates across modules — the feature itself is correct, only the test harness needs an OTP_RATE_MAX override or a module-scoped reset. Mocked: OTP delivery (dev_otp in body), wallet top-ups (no PG — manual approve via chat).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "ChatPanel.tsx / global", "issue": "Multiple 'shadow* style props are deprecated. Use boxShadow' warnings on web. RN Web is asking for the new boxShadow style. Non-blocking but should be migrated. Reference: /app/frontend/src/lib/theme.ts (shadow.card)."},
+      {"component": "Global", "issue": "'props.pointerEvents is deprecated. Use style.pointerEvents' warning emitted on web by an underlying component (likely a Pressable/Touchable). Non-blocking; migrate to style.pointerEvents."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter10_hardening.py",
+    "/app/test_reports/pytest/pytest_iter10.xml",
+    "/app/test_reports/pytest/pytest_iter10_focused.xml"
+  ],
+  "action_items": [
+    "OPTIONAL (test harness only — not a product bug): Add a session-scoped autouse fixture in /app/backend/tests/conftest.py that sets OTP_RATE_MAX to a large value (e.g. monkeypatch the env + restart backend, or expose a /api/_test/reset-otp-rate endpoint guarded by DEV_MODE) so that running the full suite back-to-back doesn't cascade-429 module fixtures that share seeded admin/agent/customer phones. Right now, only running test files individually (with a backend restart in between) gives a clean green; the full suite is ~22 errors purely from OTP 429s on fixture login, NOT from any product regression.",
+    "OPTIONAL: Migrate 'shadow*' style props to the unified 'boxShadow' style and 'props.pointerEvents' to 'style.pointerEvents' to silence the RN-Web deprecation warnings (cosmetic)."
+  ],
+  "critical_code_review_comments": [
+    "auth.py rate limiter is in-memory + per-process. Fine for the current single-uvicorn-worker MVP, but if you ever scale to multiple workers (--workers >1) or behind a load balancer, requests will skip the bucket on a different worker and the 3/60s contract breaks. Comment already calls this out — recommend Redis-backed leaky bucket before launch if multi-worker.",
+    "db.py uses os.environ at import time and caches CORS_ALLOWED_ORIGINS as a module-level list. That's correct, but means changing DEV_MODE/CORS_ALLOWED_ORIGINS at runtime requires a backend restart (which is the expected behavior — flagging just so it's documented).",
+    "helpers.record_wallet_txn uses $inc + return_document=AFTER, which is correctly atomic for concurrent writes. Good. Note that float drift could leak through to balance_after on the txn row — the round(.,2) on the returned value handles display but the on-disk wallet_balance can drift over many ops. For an MVP this is fine; if you want exact math, store paise as int.",
+    "support.py _action_topup is not transactional across the message update + wallet credit + follow-up insert. If Mongo dies between the credit and the meta update, you'd have a credited wallet with a still-'pending' message that an agent could approve a second time. The double-approve guard at the top mitigates the steady-state risk but a crash mid-flow is theoretically possible. Acceptable for MVP, worth noting for future.",
+    "onboarding.complete writes to users + subscriptions + orders + (optionally) support_messages + support_threads in 5 separate, non-transactional Mongo calls. Same MVP comment — acceptable for now."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter10_hardening.py (NEW — 20 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% on the new hardening suite (20/20). 100% on test_iter10_hardening + test_iteration3_wallet_pricing run together (33/33). Pre-existing module fixtures cascade-429 in the full-session run due to the new OTP rate-limit — a test-harness issue only, not a product regression.",
+    "frontend": "Smoke pass: customer login + home renders + IST date correct + wallet math (₹1065/day, ~7 days @ ₹8020) matches backend. ChatPanel Approve/Reject buttons confirmed wired in source against /api/support/messages/{id}/topup-approve|reject. Full inline-approve UI tap was not exercised end-to-end because rate-limit + multi-screen admin nav left the second login flow shaky; backend approve flow is fully covered by 4 dedicated pytest cases."
+  },
+  "seed_data_creation": "Each test class creates its own randomized phone numbers (prefix +9199xxxxxxxx) and onboards a fresh TEST_-prefixed customer where needed. No mutation of seeded users beyond a +₹100 credit and -₹100 reversal pattern on Sharma in TestWalletAtomicPricing (which leaves a small TEST credit txn in the ledger — acceptable for an MVP test).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "When running the full suite back-to-back, restart the backend BEFORE the run (sudo supervisorctl restart backend) to clear the in-memory OTP rate-limit bucket; otherwise module fixtures that re-login seeded admin/agent/customer phones will cascade-429. Per-file runs (test_iter10_hardening.py, test_iteration3_wallet_pricing.py, test_admin_pricing.py individually) work cleanly with one restart per file group. For UI: the customer home / wallet / chat flows are all in /app/frontend/app/(customer)/* and the admin chat in /app/frontend/app/(admin)/*. The inline Approve/Reject UI is in /app/frontend/src/components/ChatPanel.tsx lines 162-176 (handler) and 264-282 (buttons).",
+  "rca_of_issue": "No product bugs found. The only red signal in the full-session pytest run is a cascade 429 on the seeded admin/agent OTP sends — this is the new rate-limit working correctly, conflicting with the fact that the existing test harness assumes unlimited OTP sends. Fix path documented in action_items above."
+}

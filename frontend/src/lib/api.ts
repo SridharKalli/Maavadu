@@ -203,6 +203,15 @@ export interface SupportMessage {
   sender_id: string; sender_role: Role;
   kind: "text" | "voice";
   text: string; voice_b64: string; voice_duration_ms: number;
+  meta?: {
+    type?: "topup_request" | "topup_action" | string;
+    status?: "pending" | "approved" | "rejected" | string;
+    amount?: number;
+    source?: string;
+    actioned_by?: string;
+    actioned_at?: string;
+    [k: string]: any;
+  };
   created_at: string;
 }
 export const supportApi = {
@@ -224,6 +233,12 @@ export const supportApi = {
     api<SupportMessage>(`/support/threads/${threadId}/messages`,
       { method: "POST", body: JSON.stringify(payload) }),
   unread: () => api<{ unread: number }>("/support/unread"),
+  approveTopup: (messageId: string) =>
+    api<{ status: string; balance: number | null; message_id: string }>(
+      `/support/messages/${messageId}/topup-approve`, { method: "POST" }),
+  rejectTopup: (messageId: string) =>
+    api<{ status: string; balance: number | null; message_id: string }>(
+      `/support/messages/${messageId}/topup-reject`, { method: "POST" }),
 };
 
 // ---- Wallet -------------------------------------------------------------

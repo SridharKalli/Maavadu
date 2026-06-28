@@ -1,7 +1,12 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from db import db
-from helpers import get_current_user, get_or_create_thread, preview_for, require_role
+from helpers import (
+    get_current_user, get_or_create_thread, preview_for, record_wallet_txn,
+    require_role,
+)
 from models import SendMessageReq, SupportMessage
 
 router = APIRouter()
@@ -133,3 +138,76 @@ async def unread_count(user: dict = Depends(get_current_user)):
         threads = await db.support_threads.find({}, {"_id": 0}).to_list(2000)
         return {"unread": sum(t.get("unread_for_agent", 0) for t in threads)}
     return {"unread": 0}
+
+
+
+# ---------------------------------------------------------------------------
+# Topup-request actions (inline Approve / Reject buttons in chat)
+# ---------------------------------------------------------------------------
+async def _action_topup(message_id: str, action: str, actor: dict) -> dict:
+    msg = await db.support_messages.find_one({"id": message_id}, {"_id": 0})
+    if not msg:
+        raise HTTPException(404, "Message not found")
+    meta = dict(msg.get("meta") or {})
+    if meta.get("type") != "topup_request":
+        raise HTTPException(400, "Not a top-up request message")
+    if meta.get("status") != "pending":
+        raise HTTPException(400,
+                            f"Already {meta.get('status', 'actioned')}")
+    thread = await db.support_threads.find_one(
+        {"id": msg["thread_id"]}, {"_id": 0})
+    if not thread:
+        raise HTTPException(404, "Thread not found")
+    customer_id = thread["customer_id"]
+    amount = float(meta.get("amount") or 0)
+
+    new_balance = None
+    if action == "approve":
+        if amount <= 0:
+            raise HTTPException(400, "Invalid amount on request")
+        result = await record_wallet_txn(
+            customer_id, "credit", amount,
+            reason="Top-up confirmed via chat",
+            by_user_id=actor["id"])
+        new_balance = result["balance"]
+        confirm_text = (
+            f"\u2705 Top-up of \u20b9{int(amount)} confirmed. New balance: "
+            f"\u20b9{int(new_balance)}.")
+    else:
+        confirm_text = (
+            f"\u274c Top-up request for \u20b9{int(amount)} was not "
+            f"approved. Please reach out if this seems wrong.")
+
+    meta["status"] = "approved" if action == "approve" else "rejected"
+    meta["actioned_by"] = actor["id"]
+    meta["actioned_at"] = datetime.now(timezone.utc).isoformat()
+    await db.support_messages.update_one(
+        {"id": message_id}, {"$set": {"meta": meta}})
+
+    follow = SupportMessage(
+        thread_id=msg["thread_id"], sender_id=actor["id"],
+        sender_role=actor["role"], kind="text", text=confirm_text,
+        meta={"type": "topup_action", "amount": amount,
+              "status": meta["status"]},
+    )
+    await db.support_messages.insert_one(follow.dict())
+    await db.support_threads.update_one(
+        {"id": msg["thread_id"]},
+        {"$set": {"last_message_at": follow.created_at,
+                  "last_message_preview": confirm_text[:60]},
+         "$inc": {"unread_for_customer": 1}},
+    )
+    return {"status": meta["status"], "balance": new_balance,
+            "message_id": message_id, "follow_id": follow.id}
+
+
+@router.post("/support/messages/{message_id}/topup-approve")
+async def approve_topup(message_id: str,
+                        actor: dict = Depends(require_role("admin", "agent"))):
+    return await _action_topup(message_id, "approve", actor)
+
+
+@router.post("/support/messages/{message_id}/topup-reject")
+async def reject_topup(message_id: str,
+                       actor: dict = Depends(require_role("admin", "agent"))):
+    return await _action_topup(message_id, "reject", actor)

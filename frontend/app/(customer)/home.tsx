@@ -15,6 +15,7 @@ import {
   OrderMeal, SizeKey, LunchVariant, PricingGrid,
 } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
+import { istDateStr } from "@/src/lib/ist";
 import { colors, spacing, radius, shadow, DAY_NAMES_FULL } from "@/src/lib/theme";
 
 const HERO = "https://images.pexels.com/photos/35008222/pexels-photo-35008222.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940";
@@ -73,10 +74,8 @@ export default function CustomerHome() {
         ordersApi.upcoming(), walletApi.me(),
         subsApi.me().catch(() => null),
       ]);
-      const todayStr = new Date().toISOString().split("T")[0];
-      const tomorrowDate = new Date();
-      tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-      const tomStr = tomorrowDate.toISOString().split("T")[0];
+      const todayStr = istDateStr(0);
+      const tomStr = istDateStr(1);
       setToday(upcoming.find((o) => o.date === todayStr) || null);
       setTomorrow(upcoming.find((o) => o.date === tomStr) || null);
       setWallet(w);
@@ -199,7 +198,7 @@ export default function CustomerHome() {
               </Text>
               <Text style={styles.heroTitle}>Home Tiffin</Text>
               <Text style={styles.heroDate}>
-                {formatNice(new Date().toISOString().split("T")[0])}
+                {formatNice(istDateStr(0))}
               </Text>
             </View>
           </SafeAreaView>
@@ -299,12 +298,15 @@ export default function CustomerHome() {
               {missing.map((m) => {
                 const todayItem = today?.[m]?.item_name
                   || tomorrow?.[m]?.item_name || "Chef's surprise";
-                const price = priceFor(m,
-                  (tomorrow ? mealCurrentSeg(tomorrow[m]) : "single") as SizeKey
-                    === "skip" ? "single"
-                    : (tomorrow ? mealCurrentSeg(tomorrow[m]) : "single") as SizeKey,
-                  (tomorrow?.[m]?.lunch_variant as LunchVariant) || "with_rice",
-                  pricing);
+                // Upsell shows a "from ₹X" starting price, so we always
+                // anchor on the cheapest size (Single) and the default rice
+                // variant. The previous implementation tried to read the
+                // size off `tomorrow[m]` — which is unsubscribed and thus
+                // disabled — so the assertion chain always resolved to
+                // "single" anyway but was unreadable and tripped TS.
+                const startSize: SizeKey = "single";
+                const startVariant: LunchVariant = "with_rice";
+                const price = priceFor(m, startSize, startVariant, pricing);
                 return (
                   <View key={m} style={styles.upsellRow} testID={`upsell-${m}`}>
                     <Feather name={MEAL_ICONS[m]} size={22}
@@ -315,8 +317,7 @@ export default function CustomerHome() {
                         {todayItem}
                       </Text>
                       <Text style={styles.upsellPrice}>
-                        from ₹{price > 0 ? price : pricing[m === "lunch"
-                          ? "lunch_with_rice" : m].single}/meal
+                        from ₹{price}/meal
                       </Text>
                     </View>
                     <Pressable
