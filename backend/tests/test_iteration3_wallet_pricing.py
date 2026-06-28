@@ -247,7 +247,6 @@ def test_onboarding_with_initial_topup_creates_pending_request(base_url, api_cli
 # ===== 5b. Admin approves the pending top-up via chat → wallet credited =====
 def test_admin_can_approve_onboarding_topup(base_url, api_client, admin_auth):
     phone = f"+9199{int(time.time()) % 10}{random.randint(10000000, 99999999)}"
-    api_client.post(f"{base_url}/api/auth/send-otp", json={"phone": phone})
     otp = api_client.post(
         f"{base_url}/api/auth/send-otp", json={"phone": phone}).json()["dev_otp"]
     tok = api_client.post(

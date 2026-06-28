@@ -57,8 +57,11 @@ CORS_ALLOWED_ORIGINS = [
     if o.strip()
 ] or [_default_cors]
 
-# OTP throttle — sliding window. Defaults to 3 requests per 60 seconds per phone.
-OTP_RATE_MAX = int(os.environ.get("OTP_RATE_MAX", "3"))
+# OTP throttle — sliding window. Production defaults to 3 requests / 60s per
+# phone. In DEV (where the OTP is echoed in the response) we relax to 100/60
+# so pytest reruns / Expo dev loops don't trip the limit during development.
+_dev = os.environ.get("DEV_MODE", "1") == "1"
+OTP_RATE_MAX = int(os.environ.get("OTP_RATE_MAX", "100" if _dev else "3"))
 OTP_RATE_WINDOW_SECONDS = int(os.environ.get("OTP_RATE_WINDOW_SECONDS", "60"))
 
 CUTOFF_HOUR_LOCAL = 20

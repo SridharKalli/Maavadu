@@ -72,16 +72,29 @@ class TestPhoneValidation:
 
 
 # ============ 2. OTP rate-limit ============
+# In DEV the cap defaults to 100/60s so pytest reruns don't cascade 429s.
+# Production defaults to 3/60s. Either way, exceeding the cap returns 429.
+def _otp_cap_from_backend() -> int:
+    # Import after the backend env has been loaded (it's the same process
+    # under supervisor — pytest imports it directly).
+    import sys, importlib  # noqa: PLC0415
+    sys.path.insert(0, "/app/backend")
+    import db as backend_db  # noqa: PLC0415
+    importlib.reload(backend_db)
+    return int(backend_db.OTP_RATE_MAX)
+
+
 class TestOtpRateLimit:
-    def test_4th_request_within_60s_returns_429(self, api_client, base_url):
+    def test_exceeding_cap_returns_429(self, api_client, base_url):
+        cap = _otp_cap_from_backend()
         # Use a unique phone to avoid colliding with other tests' buckets
         phone = f"+9199{random.randint(10000000, 99999999)}"
-        # 3 should pass
-        for i in range(3):
+        # All requests up to the cap should succeed
+        for i in range(cap):
             r = api_client.post(f"{base_url}/api/auth/send-otp",
                                 json={"phone": phone})
-            assert r.status_code == 200, f"req {i+1}: {r.text}"
-        # 4th should be 429
+            assert r.status_code == 200, f"req {i+1}/{cap}: {r.text}"
+        # Cap + 1 must be 429
         r = api_client.post(f"{base_url}/api/auth/send-otp",
                             json={"phone": phone})
         assert r.status_code == 429, r.text
