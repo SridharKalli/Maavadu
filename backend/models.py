@@ -207,7 +207,14 @@ class TopupRequestReq(BaseModel):
     amount: float
 
 
+class PriceRow(BaseModel):
+    single: float
+    couple: float
+    family: float
+
+
 class UpdatePricingReq(BaseModel):
-    breakfast: Optional[float] = None
-    lunch: Optional[float] = None
-    dinner: Optional[float] = None
+    breakfast: Optional[PriceRow] = None
+    lunch_with_rice: Optional[PriceRow] = None
+    lunch_without_rice: Optional[PriceRow] = None
+    dinner: Optional[PriceRow] = None

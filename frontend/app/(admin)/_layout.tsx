@@ -42,6 +42,9 @@ export default function AdminLayout() {
       <Tabs.Screen name="profile" options={{
         href: null,  // sign-out access via a button on the dashboard if needed
       }} />
+      <Tabs.Screen name="pricing" options={{
+        href: null,  // reached from the dashboard shortcut card
+      }} />
     </Tabs>
   );
 }

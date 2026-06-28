@@ -226,7 +226,36 @@ test_plan:
 agent_communication:
   - agent: "main"
     message: |
-      Session 3 changes ready for testing.
+      Session 4 hotfix + feature batch.
+      BUG FIX (admin logout): `Alert.alert` doesn't fire button callbacks on
+      React Native Web — that's why the admin Sign Out icon did nothing.
+      Replaced with a cross-platform `Modal`-based confirm dialog.
+      TestIDs: `admin-signout` (opens modal) → `signout-confirm` (calls signOut)
+      OR `signout-cancel` (closes modal). After confirm, the user MUST be
+      bounced back to the /login screen (root layout watches auth.user).
+
+      NEW FEATURE (admin pricing editor):
+      • Backend: PUT /api/admin/wallet/pricing now accepts a per-meal × per-size
+        grid (PriceRow schema) — previously only flat floats. Validates each
+        cell is a non-negative number. Returns the merged grid.
+      • Frontend: new route /(admin)/pricing — full 4×3 editable grid (rupee
+        prefix per cell, Reset + Save). Reached from a "Edit pricing grid"
+        shortcut card on the admin dashboard. TestIDs: `open-pricing-editor`,
+        `price-{breakfast|lunch_with_rice|lunch_without_rice|dinner}-{single|couple|family}`,
+        `pricing-save`, `pricing-reset`, `pricing-saved`, `pricing-error`.
+      • api.ts: walletApi.updatePricing(grid) calls the new endpoint.
+
+      Test priorities:
+        1) Admin login → tap sign-out icon → confirm modal opens → tap
+           `signout-confirm` → user is signed out and returns to /login.
+        2) Cancel path: open modal → backdrop tap (`signout-backdrop`) or
+           `signout-cancel` → modal closes, still logged in.
+        3) Pricing editor: open from dashboard, change a couple of cells (e.g.
+           Breakfast couple 340 → 360), save, reload — GET /api/wallet/pricing
+           reflects the new value.
+        4) Pricing validation: blank or negative cell → save shows error toast,
+           backend returns 400.
+        5) Regression: all 32 existing backend tests still pass.
       BACKEND:
       • New pricing grid (Pricing model + _debit_for_order + /wallet/me daily_burn) — verify
         couple Sharma (B+L+D with_rice) daily_burn=340+385+340=1065. (Visually confirmed.)

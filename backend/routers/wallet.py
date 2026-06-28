@@ -58,9 +58,18 @@ async def get_pricing_api(_: dict = Depends(get_current_user)):
 @router.put("/admin/wallet/pricing")
 async def update_pricing(req: UpdatePricingReq,
                          _: dict = Depends(require_role("admin"))):
-    upd = {k: v for k, v in req.dict().items() if v is not None}
+    upd = {k: v.dict() for k, v in req.dict(exclude_unset=True).items()
+           if v is not None}
     if not upd:
         raise HTTPException(400, "Nothing to update")
+    # PriceRow values must be positive
+    for meal_key, row in upd.items():
+        for size_key in ("single", "couple", "family"):
+            v = row.get(size_key)
+            if v is None or float(v) < 0:
+                raise HTTPException(
+                    400, f"{meal_key}.{size_key} must be a non-negative number")
+            row[size_key] = float(v)
     await db.pricing.update_one({"_id": "current"}, {"$set": upd}, upsert=True)
     return await get_pricing()
 

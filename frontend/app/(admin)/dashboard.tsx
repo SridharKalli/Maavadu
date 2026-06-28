@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator,
-  Pressable, Alert,
+  Pressable, Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 
 import { adminApi, User } from "@/src/lib/api";
@@ -18,10 +19,13 @@ type Stats = {
 
 export default function AdminDashboard() {
   const { user, signOut } = useAuth();
+  const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [signoutOpen, setSignoutOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -34,15 +38,15 @@ export default function AdminDashboard() {
 
   useEffect(() => { load(); }, [load]);
 
-  function confirmSignOut() {
-    Alert.alert(
-      "Sign out?",
-      "You'll need to enter the OTP again to log back in.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Sign out", style: "destructive", onPress: () => signOut() },
-      ],
-    );
+  async function doSignOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await signOut();
+      setSignoutOpen(false);
+    } finally {
+      setSigningOut(false);
+    }
   }
 
   const customers = users.filter((u) => u.role === "customer");
@@ -68,7 +72,7 @@ export default function AdminDashboard() {
           </View>
           <Pressable
             testID="admin-signout"
-            onPress={confirmSignOut}
+            onPress={() => setSignoutOpen(true)}
             style={styles.signoutBtn}
             hitSlop={8}
           >
@@ -91,6 +95,23 @@ export default function AdminDashboard() {
           <StatCard testID="stat-pincodes" icon="map-pin" label="Pincodes"
             value={stats?.pincodes} tint={colors.brandSecondary} />
         </View>
+
+        <Pressable
+          testID="open-pricing-editor"
+          onPress={() => router.push("/(admin)/pricing")}
+          style={styles.shortcutCard}
+        >
+          <View style={[styles.shortcutIcon, { backgroundColor: colors.brand }]}>
+            <Feather name="tag" size={18} color={colors.onBrand} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.shortcutTitle}>Edit pricing grid</Text>
+            <Text style={styles.shortcutSub}>
+              Breakfast · Lunch (with/no rice) · Dinner — by family size
+            </Text>
+          </View>
+          <Feather name="chevron-right" size={18} color={colors.onSurfaceMuted} />
+        </Pressable>
 
         <Text style={styles.sectionH}>Delivery team</Text>
         <View style={styles.card}>
@@ -141,6 +162,48 @@ export default function AdminDashboard() {
           })}
         </View>
       </ScrollView>
+
+      {/* Cross-platform sign-out confirm (Alert.alert is broken on RN Web) */}
+      <Modal
+        visible={signoutOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSignoutOpen(false)}
+      >
+        <View style={styles.modalRoot}>
+          <Pressable
+            style={styles.backdrop}
+            onPress={() => setSignoutOpen(false)}
+            testID="signout-backdrop"
+          />
+          <View style={styles.confirmCard}>
+            <View style={[styles.confirmIcon, { backgroundColor: "#FBE9E9" }]}>
+              <Feather name="log-out" size={22} color={colors.error} />
+            </View>
+            <Text style={styles.confirmTitle}>Sign out?</Text>
+            <Text style={styles.confirmBody}>
+              You&apos;ll need to enter the OTP again to log back in as admin.
+            </Text>
+            <Pressable
+              testID="signout-confirm"
+              onPress={doSignOut}
+              disabled={signingOut}
+              style={[styles.confirmCta, signingOut && { opacity: 0.5 }]}
+            >
+              {signingOut
+                ? <ActivityIndicator color={colors.onBrand} />
+                : <Text style={styles.confirmCtaText}>Yes, sign me out</Text>}
+            </Pressable>
+            <Pressable
+              testID="signout-cancel"
+              onPress={() => setSignoutOpen(false)}
+              style={styles.confirmCancel}
+            >
+              <Text style={styles.confirmCancelText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -186,6 +249,19 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 12, color: colors.onSurfaceMuted, marginTop: 2,
                fontWeight: "600" },
 
+  shortcutCard: {
+    flexDirection: "row", alignItems: "center", gap: spacing.md,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.lg, padding: spacing.lg, marginTop: spacing.xl,
+    ...shadow.card,
+  },
+  shortcutIcon: {
+    width: 36, height: 36, borderRadius: radius.pill,
+    alignItems: "center", justifyContent: "center",
+  },
+  shortcutTitle: { fontSize: 15, fontWeight: "700", color: colors.onSurface },
+  shortcutSub: { fontSize: 12, color: colors.onSurfaceMuted, marginTop: 2 },
+
   sectionH: { fontSize: 12, fontWeight: "700", color: colors.onSurfaceMuted,
               letterSpacing: 0.5, marginTop: spacing.xl, marginBottom: spacing.sm,
               textTransform: "uppercase" },
@@ -208,4 +284,33 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   balText: { fontSize: 12, fontWeight: "700", color: colors.onSurface },
+
+  // Confirm modal
+  modalRoot: { flex: 1, alignItems: "center", justifyContent: "center",
+               padding: spacing.lg },
+  backdrop: { ...StyleSheet.absoluteFillObject,
+              backgroundColor: "rgba(0,0,0,0.5)" },
+  confirmCard: {
+    width: "100%", maxWidth: 360,
+    backgroundColor: colors.surface, borderRadius: radius.lg,
+    padding: spacing.xl, alignItems: "center", ...shadow.card,
+  },
+  confirmIcon: {
+    width: 56, height: 56, borderRadius: 28,
+    alignItems: "center", justifyContent: "center",
+    marginBottom: spacing.md,
+  },
+  confirmTitle: { fontSize: 20, fontWeight: "700", color: colors.onSurface,
+                  letterSpacing: -0.3 },
+  confirmBody: { fontSize: 14, color: colors.onSurfaceMuted,
+                 marginTop: spacing.xs, marginBottom: spacing.lg,
+                 textAlign: "center", lineHeight: 20 },
+  confirmCta: { backgroundColor: colors.error, paddingVertical: 14,
+                paddingHorizontal: spacing.xl, borderRadius: radius.md,
+                alignSelf: "stretch", alignItems: "center" },
+  confirmCtaText: { color: colors.onBrand, fontWeight: "700", fontSize: 15 },
+  confirmCancel: { paddingVertical: spacing.md, alignSelf: "stretch",
+                   alignItems: "center" },
+  confirmCancelText: { color: colors.onSurfaceMuted, fontWeight: "600",
+                       fontSize: 14 },
 });

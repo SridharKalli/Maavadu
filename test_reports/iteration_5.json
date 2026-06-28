@@ -1,0 +1,69 @@
+{
+  "summary": "Iteration 5 — verified the two hotfix items (admin sign-out modal + admin pricing editor). RESULTS: (1) BUG FIX admin sign-out PASSES end-to-end on RN Web — Pressable with testID='admin-signout' opens the Modal titled 'Sign out?', testID='signout-cancel' closes the modal and the user remains on /(admin)/dashboard, testID='signout-confirm' calls signOut() and the user is routed back to /login. (2) FEATURE admin pricing editor OPEN passes — /(admin)/pricing renders the full 12-cell grid pre-filled with the current values from GET /api/wallet/pricing (verified: Breakfast couple=340, Lunch w/rice family=530, Lunch no-rice single=240, Dinner family=460, plus 8 additional cells spot-checked). FRONTEND validation (blank dinner family) passes — testID='pricing-error' is rendered with text 'Dinner · Family must be a non-negative number.' before any network call. (3) FEATURE admin pricing editor SAVE is BROKEN. The PUT /api/admin/wallet/pricing endpoint returns HTTP 500 (Internal Server Error) for every well-formed payload. Root cause is in /app/backend/routers/wallet.py:61 — under Pydantic v2 (2.13.4) `req.dict(exclude_unset=True)` already recurses nested `PriceRow` models into dicts, so `v.dict()` raises `AttributeError: 'dict' object has no attribute 'dict'`. The UI surfaces this as a pricing-error reading \"Unexpected token 'I', \\\"Internal S\\\"... is not valid JSON\" (the frontend tried to JSON-parse the 500 body 'Internal Server Error'). Because the backend PUT never succeeds, NO writes occurred — GET /api/wallet/pricing still returns the original demo grid (230/340/460, 268/385/530, 240/340/460, 230/340/460), so the requested 'restore' step is effectively a no-op. (4) Backend regression: 32 prior tests still pass; 1 prior test 'test_onboarding_with_initial_topup_creates_welcome_credit' is flaky-by-state (expected balance 3000, got 6000) because the seeded phone +919900099999 retains state across runs — pre-existing, unrelated to this PR. Deprecated RN-Web warnings (shadow*, props.pointerEvents) are unchanged and out of scope per request.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "PUT /api/admin/wallet/pricing",
+        "issue": "Returns 500 Internal Server Error on every valid payload. Root cause: /app/backend/routers/wallet.py:61 — `upd = {k: v.dict() for k, v in req.dict(exclude_unset=True).items() if v is not None}`. Under Pydantic v2, `req.dict(exclude_unset=True)` recursively converts nested PriceRow into a plain dict, so `v` is a `dict` (not a model) and calling `v.dict()` raises AttributeError. Fix: iterate the model directly, e.g. `upd = {k: v.dict() for k, v in req if v is not None}` (Pydantic v2 makes BaseModel iterable as field tuples), or call `req.model_dump(exclude_unset=True)` and skip the inner `.dict()` since values are already dicts. As a result, the entire NEW pricing-edit feature is non-functional end-to-end.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "Generic error responses",
+        "issue": "FastAPI default 500 body is the raw string 'Internal Server Error' (non-JSON). The frontend then crashes on JSON.parse and displays 'Unexpected token I, \"Internal S\"... is not valid JSON' instead of a user-friendly message. Consider adding a global exception handler that always returns JSON {\"detail\": \"...\"}."
+      },
+      {
+        "endpoint": "Pre-existing test_onboarding_with_initial_topup_creates_welcome_credit",
+        "issue": "Test is state-dependent on seeded user +919900099999 — fails with balance=6000 vs expected 3000 because the user already has cumulative credits from prior runs. Not introduced by this PR. Recommend using a randomized phone or wiping the wallet at test start."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Admin pricing editor → Save changes",
+        "issue": "Frontend correctly POSTs the full grid but receives 500 and surfaces a JSON-parse error in testID='pricing-error'. Once the backend bug above is fixed, the save flow should succeed without any frontend change. Suggest also making walletApi.updatePricing handle non-JSON error bodies gracefully (try/catch around res.json and fall back to res.text).",
+        "affected_testIDs": ["pricing-save", "pricing-error", "pricing-saved"]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "Theme shadow.card (styles applied across many screens)", "issue": "Console warning persists: '\"shadow*\" style props are deprecated. Use \"boxShadow\".' Out of scope per request but flagged for future. Reference: /app/frontend/src/lib/theme.ts (shadow.card)."},
+      {"component": "props.pointerEvents (third-party / RN-Web bridge)", "issue": "Console warning: 'props.pointerEvents is deprecated. Use style.pointerEvents'. Out of scope per request."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_admin_pricing.py (NEW — pytest module covering full/partial PUT, negative-value rejection, auth requirement, and final restore)",
+    "/app/test_reports/pytest/pytest_iter5.xml",
+    "/tmp/pricing_open.png (12 cells pre-filled — all values correct)",
+    "/tmp/pricing_after_save.png (red error banner from 500 response)",
+    "/tmp/after_signout.png (login screen after admin sign-out confirm)"
+  ],
+  "action_items": [
+    "FIX BLOCKER: /app/backend/routers/wallet.py:61 — replace `{k: v.dict() for k, v in req.dict(exclude_unset=True).items() if v is not None}` with Pydantic-v2-safe iteration, e.g. `upd = {}; for k, v in req: if v is not None: upd[k] = v.model_dump()`. Then PUT /api/admin/wallet/pricing will succeed and both 'full grid' and 'partial update' scenarios in /app/backend/tests/test_admin_pricing.py will pass.",
+    "(Optional but recommended) Add a global exception handler in FastAPI so 5xx responses are always JSON {detail: ...}, preventing the frontend JSON.parse crash visible in pricing-error.",
+    "(Optional) Harden walletApi.updatePricing in /app/frontend/src/lib/api.ts to try/catch res.json and fall back to res.text() so the user sees a friendlier error like 'Server error — please retry.'",
+    "(Optional) De-flake test_onboarding_with_initial_topup_creates_welcome_credit by using a randomized phone or resetting the user's wallet before the assertion."
+  ],
+  "critical_code_review_comments": [
+    "routers/wallet.py update_pricing: even after fixing the .dict() bug, the explicit non-negative validation loop is redundant once the Pydantic schema enforces it; consider using `confloat(ge=0)` on PriceRow fields so 400s are raised by FastAPI's validator automatically.",
+    "models.py PriceRow + UpdatePricingReq look correct; Optional[PriceRow] gives partial-update semantics — keep this contract.",
+    "frontend/app/(admin)/pricing.tsx setCell uses `value.replace(/[^\\d.]/g, '')` which permits multiple decimal points (e.g. '12.3.4'); fine for now since Number(...) will become NaN and validation catches it, but consider tightening to a single decimal regex.",
+    "dashboard.tsx Modal handles RN-Web sign-out correctly; suggestion: also wire `useEffect` to close the modal on route change so it can't leak across navigations (minor).",
+    "dashboard.tsx doSignOut sets signoutOpen=false after signOut(), but if signOut() throws, the modal stays open with no error UI — consider catching and showing a toast."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_admin_pricing.py (new pytest module — 6 tests; 4 currently fail due to the PUT 500 bug, 1 auth test passes, 1 restore test will pass once bug is fixed)"
+  ],
+  "success_rate": {
+    "backend": "33/38 passing (87%) — 32 prior tests pass, 1 prior flaky-by-state, all 4 NEW pricing-PUT tests fail due to the single backend bug above",
+    "frontend": "5/5 user-visible flows verified: sign-out open, sign-out cancel, sign-out confirm, pricing open + 12-cell prefill, pricing blank-cell client validation. The pricing save flow itself fails *only* because of the backend 500."
+  },
+  "seed_data_creation": "No new seed data. Original pricing grid is intact because every PUT attempt failed with 500 (verified via GET /api/wallet/pricing after the test run): breakfast 230/340/460, lunch_with_rice 268/385/530, lunch_without_rice 240/340/460, dinner 230/340/460. The 'restore' step requested at the end of the workflow is a no-op.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "After the main agent fixes /app/backend/routers/wallet.py:61, re-run `cd /app/backend && python -m pytest tests/test_admin_pricing.py -q` and expect 6/6 passing (the final test_zz_restore_original will leave the demo data correctly set to the original grid). Then re-run the Playwright pricing flow in /app/test_reports/iteration_5.json's 'STEP4' segment (Breakfast couple→360, Lunch with rice family→540, click pricing-save) — expect testID='pricing-saved' to appear and GET /api/wallet/pricing to reflect those two updates. Sign-out modal flows are already confirmed working — no need to re-test unless dashboard.tsx changes.",
+  "rca_of_issue": "ENDPOINT: PUT /api/admin/wallet/pricing returns 500. CODE: /app/backend/routers/wallet.py line 61: `upd = {k: v.dict() for k, v in req.dict(exclude_unset=True).items() if v is not None}`. RUNTIME: Pydantic 2.13.4. ROOT CAUSE: `BaseModel.dict()` (and `model_dump`) recursively serialize nested submodels into plain dicts. The dict comprehension above iterates the already-recursed top-level mapping, so `v` is a dict like {'single': 230.0, ...}, not a PriceRow instance, and `v.dict()` raises AttributeError: 'dict' object has no attribute 'dict'. REPRO: send any valid body, e.g. `curl -X PUT .../api/admin/wallet/pricing -H 'Authorization: Bearer <admin>' -d '{\"breakfast\":{\"single\":230,\"couple\":360,\"family\":460}}'` → 500. MITIGATION (preferred): `upd = {k: v.model_dump() for k, v in req if v is not None}` (Pydantic v2 BaseModel is iterable as (field_name, value) tuples and `v` is a real PriceRow). Alternative: `payload = req.model_dump(exclude_unset=True); upd = {k: v for k, v in payload.items() if v is not None}` — since the inner dict is already serialized, drop the `.dict()` call entirely."
+}

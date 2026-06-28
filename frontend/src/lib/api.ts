@@ -218,6 +218,9 @@ export interface WalletInfo {
 export const walletApi = {
   me: () => api<WalletInfo>("/wallet/me"),
   pricing: () => api<PricingGrid>("/wallet/pricing"),
+  updatePricing: (grid: Partial<PricingGrid>) =>
+    api<PricingGrid>("/admin/wallet/pricing",
+      { method: "PUT", body: JSON.stringify(grid) }),
   requestTopup: (amount: number) =>
     api<{ sent: boolean; thread_id: string }>("/wallet/topup-request",
       { method: "POST", body: JSON.stringify({ amount }) }),
