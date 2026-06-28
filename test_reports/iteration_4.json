@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 4 — single E2E automated UI test against the new 7-step wallet-based onboarding flow on the running Expo web preview. PASSED end-to-end with a fresh phone number (+91 98xxxxxxxx, randomized per run). Flow: send-otp → DEV OTP captured from banner → verify-otp → menu preview → name='QA Onboard Family' → pincode 600020 (Adyar) serviceable → address='Flat 9 QA Block, Chennai' → preferences (meals=lunch+dinner default, size=couple, lunch variant=without_rice, live estimate rendered '₹680/day') → topup preset 6000 (summary correctly read '₹6,000 covers about 8 days at ₹680/day') → submit → customer landed on /(customer)/home. Home wallet banner showed ₹6000 with ≈8 days at ₹680/day. Navigated to /wallet — header amount ₹6000, '8 days left', '₹680 per day', pricing grid rendered (Breakfast 230/340/460, Lunch w/ rice 268/385/530, Lunch no rice 240/340/460, Dinner 230/340/460), and the 'Welcome top-up' credit txn was present in Recent activity. The /api/wallet/me response is implicitly verified because the Wallet screen renders directly from that endpoint (balance=6000, daily_burn=680, days_left=8, 'Welcome top-up' credit txn all visible on screen). Two non-blocking RN deprecation warnings observed in console (shadow* and props.pointerEvents).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "StyleSheet shadow props (multiple screens via theme.shadow.card)", "issue": "Console warning: '\"shadow*\" style props are deprecated. Use \"boxShadow\".' Migrate shadow* to boxShadow in /app/frontend/src/lib/theme.ts (or wherever shadow.card is defined) for future RN Web compatibility."},
+      {"component": "props.pointerEvents (RN core)", "issue": "Console warning: 'props.pointerEvents is deprecated. Use style.pointerEvents'. Likely emitted from a third-party component during the done→home transition; locate caller and move to style.pointerEvents."}
+    ]
+  },
+  "test_report_links": [
+    "Inline Playwright script executed via mcp_browser_automation (no persisted .py file — single-run E2E as requested)",
+    "/tmp/home_after_onboard.png (home screen with ₹6000 wallet banner)",
+    "/tmp/wallet_screen.png (wallet screen with pricing grid, 8 days, ₹680/day)"
+  ],
+  "action_items": [
+    "(Optional) Migrate theme shadow.card to boxShadow to silence RN Web deprecation warning.",
+    "(Optional) Locate and replace the deprecated `props.pointerEvents` usage (likely an internal RN-Web component bridge call) with `style.pointerEvents`."
+  ],
+  "critical_code_review_comments": [
+    "onboarding.tsx: refresh() is called inside setTimeout(800ms) after setStep('done'). Works (verified — auth context re-fetches /me and the root layout routes /(customer)/home). However, a manual error in /complete after a successful auth state change would leave the user stuck on the 'done' screen. Consider awaiting refresh() and routing explicitly rather than relying on the root layout's auth-state branching.",
+    "onboarding.tsx submit() does not disable the 'Skip topup' button while busy — minor; not exploitable in this flow.",
+    "home.tsx WALLET banner: low-balance gating uses wallet.low boolean from backend (good). At ₹6000/680 = 8 days, low correctly evaluates false and the red border was NOT shown — consistent with expected behaviour.",
+    "wallet.tsx 'Recent activity' txn list uses t.id as key, which is correct, but the empty-state vs populated branch is fine."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "skipped (frontend-only per request) — API responses indirectly verified via UI rendering",
+    "frontend": "100% (single E2E happy-path scenario fully passed)"
+  },
+  "seed_data_creation": "One new TEST customer created via the onboarding flow per run with a randomized fresh phone (latest run: +919847693733). Name 'QA Onboard Family', pincode 600020 (Adyar), address 'Flat 9 QA Block, Chennai', meals=lunch+dinner, size=couple, lunch_variant=without_rice, welcome topup ₹6000. Each test run will create a fresh customer because the script randomizes the phone — main agent may want to prune TEST_* customers periodically.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Onboarding flow + post-onboarding home + wallet integration confirmed working end-to-end on https://fresh-feast-app-1.preview.emergentagent.com via the local 0.0.0.0:3000 ingress. All required testIDs (onboarding-start, onboarding-name, onboarding-next-name, onboarding-pincode, onboarding-check-pincode, onboarding-address, onboarding-next-address, meal-chip-{breakfast|lunch|dinner}, size-{single|couple|family}, variant-{with_rice|without_rice}, onboarding-daily-estimate, onboarding-next-prefs, topup-{3000|6000|10000}, topup-custom-toggle, topup-custom-input, topup-summary, onboarding-skip-topup, onboarding-submit, wallet-banner, wallet-balance, wallet-amount) are present and operational. For inline-page API verification (fetch from page context) note that the JWT is stored by Expo's AsyncStorage; on web preview, it may NOT be in localStorage by direct key — prefer to call the backend with a freshly minted token issued via /api/auth/verify-otp or to assert via the visible UI as this iteration did.",
+  "rca_of_issue": "n/a — flow works."
+}
