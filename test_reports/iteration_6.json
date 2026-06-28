@@ -1,0 +1,25 @@
+{
+  "summary": "Re-verified admin pricing PUT fix in /app/backend/routers/wallet.py (line 61 — iterate model directly rather than calling .dict() twice). Backend: 6/6 admin pricing tests PASS and full pytest suite 38/38 PASS (no regression). Frontend smoke: logged in as +919000000001, opened pricing editor, set Breakfast/Couple=365, saved → API GET /api/wallet/pricing returned breakfast.couple=365.0. Blanking Dinner/Family and saving correctly showed testID='pricing-error' (no backend change). Admin sign-out modal (admin-signout → signout-confirm → /login) works. Cleanup: restored full original demo grid via API (verified breakfast.couple back to 340.0).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_admin_pricing.py",
+    "/app/test_reports/pytest/pytest_iter6.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Optional UX: testID='pricing-saved' toast auto-dismisses after 2400ms via setTimeout; this is fine for UX but slightly flaky for automation. Could expose a stable post-save indicator (e.g., disabled save with 'Saved' label) if needed for future tests. Not a blocker."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (38/38)", "frontend": "100% (4/4 smoke checks)"},
+  "seed_data_creation": "None. Pricing was modified during the smoke test and fully restored to seed values (breakfast: 230/340/460, lunch_with_rice: 268/385/530, lunch_without_rice: 240/340/460, dinner: 230/340/460).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Admin token is stored in localStorage under key 'tiffin_token' as a JSON-stringified string (wrapped in quotes). When pulling via Playwright for direct API verification, do json.loads(raw) before passing as Bearer. Pricing editor inputs (testID price-{row}-{size}) are flex-row siblings — use locator.fill() directly instead of click()+type to avoid sibling pointer-event interception. pricing-saved toast auto-dismisses after 2.4s, so poll within that window or just assert the state via API.",
+  "rca_of_issue": "Confirmed RCA & fix: Pydantic v2 — req.dict(exclude_unset=True) recursively converts nested PriceRow models into dicts; the original code then called .dict() on those dicts → AttributeError. Fix iterates the model directly (for k, v in req) which yields original PriceRow instances (or None for unset fields), and uses v.dict() with a hasattr fallback. Verified working via both the targeted pytest file and an end-to-end frontend flow."
+}

@@ -58,18 +58,22 @@ async def get_pricing_api(_: dict = Depends(get_current_user)):
 @router.put("/admin/wallet/pricing")
 async def update_pricing(req: UpdatePricingReq,
                          _: dict = Depends(require_role("admin"))):
-    upd = {k: v.dict() for k, v in req.dict(exclude_unset=True).items()
-           if v is not None}
+    # Pydantic v2: iterating the model yields (field_name, value) where value is
+    # the nested PriceRow instance (or None for unset fields).
+    upd: dict = {}
+    for k, v in req:
+        if v is None:
+            continue
+        row = v.dict() if hasattr(v, "dict") else dict(v)
+        for size_key in ("single", "couple", "family"):
+            val = row.get(size_key)
+            if val is None or float(val) < 0:
+                raise HTTPException(
+                    400, f"{k}.{size_key} must be a non-negative number")
+            row[size_key] = float(val)
+        upd[k] = row
     if not upd:
         raise HTTPException(400, "Nothing to update")
-    # PriceRow values must be positive
-    for meal_key, row in upd.items():
-        for size_key in ("single", "couple", "family"):
-            v = row.get(size_key)
-            if v is None or float(v) < 0:
-                raise HTTPException(
-                    400, f"{meal_key}.{size_key} must be a non-negative number")
-            row[size_key] = float(v)
     await db.pricing.update_one({"_id": "current"}, {"$set": upd}, upsert=True)
     return await get_pricing()
 
